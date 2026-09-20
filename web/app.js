@@ -44,6 +44,7 @@ async function loadStatus() {
     `<div>skills 目录</div><div>${s.skills_dir}</div>`;
   const d = s.defaults || {};
   if (d.min_volume != null) $('i-min').value = d.min_volume;
+  if (d.usd_rate != null) { $('s-rate').value = d.usd_rate; }
   return d;
 }
 const pill = (name, ok) => `<span class="${ok ? 'on' : 'off'}">${name}${ok ? ' 就绪' : ' 未配置'}</span>`;
@@ -125,7 +126,10 @@ function render(res) {
 }
 
 function draw(cols) {
-  const num = new Set(['月均搜索量', '竞争指数', '页首出价低', '页首出价高', '平均CPC', '可行性评分']);
+  // 表头带币种后缀（页首出价低(CNY)），所以按前缀判定数值列
+  const NUM_PREFIX = ['月均搜索量', '竞争指数', '页首出价', '平均CPC',
+                      '可行性评分', '全球月搜', '序号'];
+  const isNum = c => NUM_PREFIX.some(x => c.startsWith(x)) || c.endsWith('月搜');
   const head = '<thead><tr>' + cols.map(c =>
     `<th data-c="${c}">${c}${sortState.col === c ? (sortState.asc ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr></thead>';
   const body = '<tbody>' + lastRows.map(r => '<tr>' + cols.map(c => {
@@ -140,7 +144,7 @@ function draw(cols) {
       const c = th.dataset.c;
       sortState = { col: c, asc: sortState.col === c ? !sortState.asc : false };
       const k = sortState.asc ? 1 : -1;
-      lastRows.sort((a, b) => num.has(c)
+      lastRows.sort((a, b) => isNum(c)
         ? ((+a[c] || 0) - (+b[c] || 0)) * k
         : String(a[c]).localeCompare(String(b[c]), 'zh') * k);
       draw(cols);
@@ -330,12 +334,14 @@ $('run-ideas').onclick = () => run('/api/keywords/ideas', {
   geos: T.i.value,
   lang: $('i-lang').value,
   min_volume: +$('i-min').value || 0,
+  usd: $('i-usd').checked,
 }, '拓词中…');
 
 $('run-volume').onclick = () => run('/api/keywords/volume', {
   keywords: $('words').value,
   geos: T.v.value,
   lang: $('v-lang').value,
+  usd: $('v-usd').checked,
 }, '取数中…');
 
 $('run-sop').onclick = () => run('/api/keywords/sop', {

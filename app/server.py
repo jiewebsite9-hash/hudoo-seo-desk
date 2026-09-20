@@ -174,7 +174,7 @@ class Handler(BaseHTTPRequestHandler):
             def run(j):
                 rows = gkp.ideas(seeds=seeds, url=url, site=site, geos=geos,
                                  lang=lang, min_volume=minv, job=j)
-                return _finish(j, rows, "ideas")
+                return _finish(j, rows, "ideas", bool(b.get("usd")), b.get("usd_rate"))
 
             return self._json({"job": jobs.start("拓词", run).id})
 
@@ -221,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
 
             def run(j):
                 rows = gkp.volume(words, geos=geos, lang=lang, job=j)
-                return _finish(j, rows, "volume")
+                return _finish(j, rows, "volume", bool(b.get("usd")), b.get("usd_rate"))
 
             return self._json({"job": jobs.start("补搜索量", run).id})
 
@@ -342,15 +342,25 @@ def _lines(text):
     return [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
 
 
-def _finish(job, rows, prefix):
-    """统一收尾:落 CSV,回传前 200 行给界面预览,其余走下载。"""
+def _finish(job, rows, prefix, to_usd=False, rate=None):
+    """统一收尾:按需换算币种、落 CSV,回传前 200 行给界面预览。"""
     if not rows:
         job.log("没有拿到任何数据")
         return {"count": 0, "preview": [], "csv": None}
-    path = gkp.save_csv(rows, prefix)
+    rate = float(rate or config.get("defaults.usd_rate", 7.0))
+    raw_cur = rows[0].get("货币")
+    rows, cur = gkp.apply_currency(rows, to_usd, rate)
+    if to_usd and raw_cur != cur:
+        job.log("出价已按 1 USD = %.2f %s 换算,高价值阈值同步切到 USD 档" % (rate, raw_cur))
+    elif raw_cur != "USD":
+        job.log("出价单位是账号币种 %s(Google Ads 的出价跟查哪个市场无关)" % raw_cur)
+    path = gkp.save_csv(rows, prefix, cur)
     job.log("已导出 %d 行 -> %s" % (len(rows), path.name))
-    return {"count": len(rows), "columns": gkp.COLUMNS,
-            "preview": rows[:200], "csv": path.name,
+    cols = gkp.display_columns(cur)
+    keymap = dict(zip(gkp.DISPLAY_KEYS, cols))
+    preview = [{keymap[k]: r.get(k, "") for k in gkp.DISPLAY_KEYS} for r in rows[:200]]
+    return {"count": len(rows), "columns": cols, "currency": cur,
+            "preview": preview, "csv": path.name,
             "truncated": len(rows) > 200}
 
 

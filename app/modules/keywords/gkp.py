@@ -29,9 +29,42 @@ COMP_CN = {"LOW": "低", "MEDIUM": "中", "HIGH": "高"}
 # 工业/机械类词出价普遍高得多,会把整列打成「极高」失去区分度 —— 见 README。
 VALUE_LINE = {"CNY": (20.0, 35.0), "USD": (2.8, 5.0), "EUR": (2.6, 4.6)}
 
+# 内部字段名(sop.py 也依赖这套键,别改)
 COLUMNS = ["关键词", "月均搜索量", "搜索量档位", "竞争程度", "竞争指数",
            "页首出价低", "页首出价高", "平均CPC", "货币", "可行性评分",
            "高价值", "近12月"]
+
+# 导出/界面用的表头:把币种写进列名,并去掉单独的「货币」列。
+# 原先出价列不带单位、币种藏在最后一列,查美国市场看到人民币金额很容易误读。
+DISPLAY = ["关键词", "月均搜索量", "搜索量档位", "竞争程度", "竞争指数",
+           "页首出价低({cur})", "页首出价高({cur})", "平均CPC({cur})",
+           "可行性评分", "高价值", "近12月"]
+DISPLAY_KEYS = ["关键词", "月均搜索量", "搜索量档位", "竞争程度", "竞争指数",
+                "页首出价低", "页首出价高", "平均CPC",
+                "可行性评分", "高价值", "近12月"]
+
+
+def display_columns(currency):
+    return [c.replace("{cur}", currency or "?") for c in DISPLAY]
+
+
+def apply_currency(rows, to_usd=False, rate=7.0):
+    """按需把出价列换算成 USD,并重算「高价值」。
+
+    **Google Ads 返回的出价永远是账号币种,跟查哪个市场无关** —— 人民币账号查
+    美国市场拿到的也是 CNY。做外贸时通常想看 USD,所以给一个换算开关。
+    换算后高价值阈值要跟着切到 USD 档(≥$2.8 高 / ≥$5 极高),否则整列会失真。
+    """
+    cur = (rows[0].get("货币") if rows else None) or "USD"
+    if not rows or not to_usd or cur == "USD":
+        return rows, cur
+    rate = float(rate or 7.0)
+    for r in rows:
+        for k in ("页首出价低", "页首出价高", "平均CPC"):
+            r[k] = round((r[k] or 0) / rate, 2)
+        r["货币"] = "USD"
+        r["高价值"] = value_tag(r["页首出价高"], "USD")
+    return rows, "USD"
 
 ERROR_HINTS = [
     ("DEVELOPER_TOKEN_NOT_APPROVED",
@@ -194,7 +227,7 @@ def check(job=None):
             "message": "接口可达但无数据,检查 Cloud 项目的 Google Ads API 访问级别"}
 
 
-def volume(keywords, geos, lang="en", partners=False, avg_cpc=False, job=None):
+def volume(keywords, geos, lang="en", partners=False, avg_cpc=True, job=None):
     log = job.log if job else (lambda m: None)
     _check_geos(geos)
     from google.ads.googleads.errors import GoogleAdsException
@@ -224,7 +257,7 @@ def volume(keywords, geos, lang="en", partners=False, avg_cpc=False, job=None):
 
 
 def ideas(seeds=None, url=None, site=False, geos=None, lang="en",
-          min_volume=0, partners=False, avg_cpc=False, job=None):
+          min_volume=0, partners=False, avg_cpc=True, job=None):
     log = job.log if job else (lambda m: None)
     _check_geos(geos)
     seeds = _dedupe(seeds or [])
@@ -306,11 +339,13 @@ def parse_keyword_text(text):
     return out
 
 
-def save_csv(rows, prefix):
-    """utf-8-sig,Excel 双击直接认中文。"""
+def save_csv(rows, prefix, currency=None):
+    """utf-8-sig,Excel 双击直接认中文。表头把币种写进出价列名。"""
+    cur = currency or (rows[0].get("货币") if rows else "USD")
     path = config.out_dir() / ("%s_%s.csv" % (prefix, datetime.now().strftime("%Y%m%d_%H%M%S")))
     with path.open("w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=COLUMNS)
-        w.writeheader()
-        w.writerows(rows)
+        w = csv.writer(f)
+        w.writerow(display_columns(cur))
+        for r in rows:
+            w.writerow([r.get(k, "") for k in DISPLAY_KEYS])
     return path
