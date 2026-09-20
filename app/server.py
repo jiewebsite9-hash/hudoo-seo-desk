@@ -6,12 +6,13 @@
 """
 import json
 import mimetypes
+import re
 import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, quote
 
 from app import config, jobs
 from app.modules.keywords import gkp
@@ -82,6 +83,23 @@ class Handler(BaseHTTPRequestHandler):
             st["version"] = VERSION
             st["repo"] = REPO
             return self._json(st)
+
+        if p == "/api/template":
+            from app.modules.keywords import templates
+            kind = (q.get("kind") or [""])[0]
+            try:
+                data, name = templates.build(kind)
+            except KeyError as e:
+                return self._json({"error": str(e)}, 404)
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/vnd.openxmlformats-officedocument."
+                             "spreadsheetml.sheet")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition",
+                             "attachment; filename*=UTF-8''" + quote(name))
+            self.end_headers()
+            return self.wfile.write(data)
 
         if p == "/api/options":
             from app.modules.keywords import locations
@@ -210,7 +228,19 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "没有这个接口"}, 404)
 
 
-HEADER_WORDS = {"keyword", "keywords", "关键词", "词", "term", "query", "search term"}
+# 表头行的第一格长这样就当成表头扔掉。比较前会去掉所有空白,
+# 所以「词 / 模式」和「词/模式」都能命中。
+# **本程序自己发的模板表头必须全部在这里** —— 否则用户下载模板填完传回来,
+# 表头会被当成一个关键词导进去。
+HEADER_WORDS = {
+    "keyword", "keywords", "关键词", "词", "term", "terms", "query", "queries",
+    "searchterm", "searchterms",
+    # 模板表头
+    "种子词", "种子", "seed", "seeds",
+    "竞品网址", "网址", "域名", "url", "urls", "site", "sites", "domain", "domains",
+    "词/模式", "模式", "pattern", "patterns",
+    "剔除词", "排除词",
+}
 
 
 def parse_table_bytes(raw, filename=""):
@@ -298,9 +328,11 @@ def _strip_header(rows):
     while len(out) > 1 and modal > 1 and len(out[0]) < modal:
         out.pop(0)
 
-    # 表头行
-    if out and out[0] and out[0][0].strip().lower() in HEADER_WORDS:
-        out.pop(0)
+    # 表头行:比较时去掉全部空白,「词 / 模式」和「词/模式」都能命中
+    if out and out[0]:
+        first = re.sub(r"\s+", "", str(out[0][0])).lower()
+        if first in HEADER_WORDS:
+            out.pop(0)
     return out
 
 

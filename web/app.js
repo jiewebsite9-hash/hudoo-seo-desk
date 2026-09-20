@@ -221,6 +221,18 @@ function attachUploader(ta) {
     }
   }
 
+  // 模板下载 —— 放在上传按钮左边。模板里的说明在单独的工作表，
+  // 所以填完可以原样传回来，不会把说明当成关键词导进去。
+  if (ta.dataset.tpl && label) {
+    const tpl = document.createElement("span");
+    tpl.className = "up";
+    tpl.style.marginRight = "12px";
+    tpl.textContent = "⬇ 模板";
+    tpl.title = "下载这一栏的 xlsx 模板（含填写说明）";
+    tpl.onclick = () => { location.href = "/api/template?kind=" + ta.dataset.tpl; };
+    label.appendChild(tpl);
+  }
+
   link.onclick = () => input.click();
   input.onchange = () => send(input.files[0]);
 

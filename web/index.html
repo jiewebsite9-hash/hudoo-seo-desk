@@ -103,7 +103,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <h2>拓词</h2>
       <p class="hint">对应关键词规划师的「发现新关键字」。种子词一行一个，超过 20 个会自动分批去重。返回的每个词自带搜索量、竞争度和页首出价，不用再去别处补数。</p>
       <label>种子词（一行一个）</label>
-      <textarea id="seeds" placeholder="conveyor roller&#10;idler roller"></textarea>
+      <textarea id="seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea>
       <label style="margin-top:12px">或按页面拓词（填了这个就不用种子词）</label>
       <input id="url" placeholder="https://competitor.com/products/">
       <div class="row" style="margin-top:12px">
@@ -128,7 +128,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <h2>补搜索量</h2>
       <p class="hint">对应「获取搜索量和预测数据」。一次最多 1 万个词，是给已有词库补主口径数据最快的路子。可以直接粘 CSV，只取第一列。</p>
       <label>关键词（一行一个）</label>
-      <textarea id="words" placeholder="conveyor rollers&#10;gravity roller conveyor"></textarea>
+      <textarea id="words" data-tpl="words" placeholder="conveyor rollers&#10;gravity roller conveyor"></textarea>
       <div class="row" style="margin-top:12px">
         <div style="flex:2.2">
           <label>地区（必填，可加多个）</label>
@@ -151,17 +151,17 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <p class="hint">按「互旦关键词 SOP V2」的 20 列总表格式出数。<b>意图、优先级、金矿、搜索量区间、来源渠道</b>按口径规则自动判定；<b>客户级别、布局角色、目标URL、页面类型、页面状态、该页主词、备注</b>是人工判断列，留空等你填。会跑两轮取数（主市场 + 全球不限地区）。</p>
       <div class="row">
         <div><label>种子词（一行一个，走「GKP以关键字拓展」）</label>
-          <textarea id="s-seeds" placeholder="conveyor roller&#10;idler roller"></textarea></div>
+          <textarea id="s-seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea></div>
         <div><label>竞品网址（一行一个，走「GKP以网站拓展」）</label>
-          <textarea id="s-sites" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
+          <textarea id="s-sites" data-tpl="sites" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
       </div>
       <div class="row">
         <div><label>客户原始词（可选，支持 词⇥中文⇥级别）</label>
-          <textarea id="s-customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea></div>
+          <textarea id="s-customer" data-tpl="customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea></div>
         <div><label>混杂 / 泛词清单（命中的词最高只给 P1）</label>
-          <textarea id="s-mixed" placeholder="roller manufacturer&#10;rubber roller*&#10;steel roller*"></textarea></div>
+          <textarea id="s-mixed" data-tpl="mixed" placeholder="roller manufacturer&#10;rubber roller*&#10;steel roller*"></textarea></div>
         <div><label>剔除清单（命中的词移入「剔除词」页）</label>
-          <textarea id="s-exclude" placeholder="*conveyor belt*&#10;*conveyor system*&#10;*industrial automation*&#10;roller&#10;pulley"></textarea></div>
+          <textarea id="s-exclude" data-tpl="exclude" placeholder="*conveyor belt*&#10;*conveyor system*&#10;*industrial automation*&#10;roller&#10;pulley"></textarea></div>
       </div>
       <p class="hint" style="margin:-4px 0 12px">两个清单同一套语法，<b>默认整词匹配</b>：<code>roller</code> 只命中 roller 本身（对应剔除规则①泛词），不会误伤 conveyor roller。要覆盖一整类词必须加星号包住：<code>*conveyor belt*</code> 才能剔掉 belt conveyor belt、conveyor conveyor belt 这些（对应规则④）；<code>rubber roller*</code> 是「以…开头」。</p>
       <div class="row">
