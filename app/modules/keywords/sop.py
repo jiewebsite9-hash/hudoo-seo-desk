@@ -20,8 +20,11 @@ COLUMNS = ["序号", "关键词", "词源", "客户级别", "来源渠道", "{�
            "全球月搜", "竞争程度", "页首出价低位(USD)", "页首出价高位(USD)", "意图",
            "优先级", "金矿", "布局角色", "目标URL", "页面类型", "页面状态", "该页主词", "备注"]
 
-# 人工判断列 —— 导出时留空
-BLANK = {"客户级别", "布局角色", "目标URL", "页面类型", "页面状态", "该页主词", "备注"}
+# 人工判断列 —— 导出时留空。
+# 「客户级别」**不在这里**:它是客户提供的数据,不是人工判断。客户词表里填了就该带进总表。
+# (实测它不预测优先级 —— 客户按「产品重要性」打分,SOP 按「搜索价值」定级,两把尺子;
+#  但定布局角色和目标URL 时要看它,所以必须带过去。)
+BLANK = {"布局角色", "目标URL", "页面类型", "页面状态", "该页主词", "备注"}
 
 # ---- 意图判定(口径说明 第 7 条)----
 # 交易 = 采购意图词;信息 = 科普/对比/规格问句;其余归商业
@@ -108,7 +111,16 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
     for raw in (customer_words or []):
         if not str(raw).strip():
             continue
-        parts = [x.strip() for x in re.split(r"	|,|，|\|", str(raw)) if x.strip()]
+        # **不能过滤掉中间的空格子**:客户表里常有合并单元格(两行共用一个中文),
+        # 传过来就是空串。一旦把空的丢掉,后面的「级别」会顶到「中文」的位置上。
+        parts = [x.strip() for x in re.split(r"	|,|，|\|", str(raw))]
+        while parts and not parts[-1]:
+            parts.pop()
+        # 第一列常常是「序号」—— 纯数字且后面还有内容就丢掉,否则 1/2/3 会变成关键词
+        if len(parts) > 1 and re.fullmatch(r"\d{1,5}[.、]?", parts[0]):
+            parts = parts[1:]
+        if not parts or not parts[0]:
+            continue
         w = parts[0]
         customer[w.lower()] = w
         cust_meta[w.lower()] = {"中文": parts[1] if len(parts) > 1 else "",
@@ -215,6 +227,7 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         out.append({
             "关键词": kw,
             "词源": "原始词" if k in customer else "拓展词",
+            "客户级别": (cust_meta.get(k) or {}).get("级别", ""),
             "来源渠道": "；".join(sorted(src.get(k, {"—"}))),
             "{市场}月搜": lv,
             "搜索量区间": lr["搜索量档位"],

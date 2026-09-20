@@ -240,6 +240,8 @@ HEADER_WORDS = {
     "竞品网址", "网址", "域名", "url", "urls", "site", "sites", "domain", "domains",
     "词/模式", "模式", "pattern", "patterns",
     "剔除词", "排除词",
+    # 客户给的词表常见首列
+    "序号", "编号", "no", "no.", "#", "index", "id",
 }
 
 
