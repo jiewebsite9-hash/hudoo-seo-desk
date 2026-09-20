@@ -64,7 +64,11 @@ def start(name, fn):
         try:
             job.result = fn(job)
             job.status = "done"
-        except Exception as e:
+        except BaseException as e:
+            # 故意抓 BaseException 而不是 Exception:
+            # SystemExit / KeyboardInterrupt 也是 BaseException,一旦漏出去,
+            # 线程会静默死掉、作业永远停在 running、界面一直转圈不报错。
+            # 宁可把它记成错误让人看见,也不能让作业假装还在跑。
             job.error = "%s: %s" % (type(e).__name__, e)
             job.status = "error"
             job.log("[出错] " + job.error)

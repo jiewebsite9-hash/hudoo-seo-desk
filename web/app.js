@@ -43,9 +43,8 @@ async function loadStatus() {
     `<div>配置文件</div><div>${s.config_file || '<span style="color:var(--err)">还没有 config.local.yaml</span>'}</div>` +
     `<div>skills 目录</div><div>${s.skills_dir}</div>`;
   const d = s.defaults || {};
-  if (d.geo) { $('i-geo').value = d.geo; $('v-geo').value = d.geo; }
-  if (d.lang) { $('i-lang').value = d.lang; $('v-lang').value = d.lang; }
   if (d.min_volume != null) $('i-min').value = d.min_volume;
+  return d;
 }
 const pill = (name, ok) => `<span class="${ok ? 'on' : 'off'}">${name}${ok ? ' 就绪' : ' 未配置'}</span>`;
 
@@ -147,23 +146,113 @@ function showErr(msg) {
   if (msg) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-/* ---------------- 按钮 ---------------- */
-const geos = v => v.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+/* ---------------- 地区 / 语言选择器 ----------------
+   地区可加多个（GKP 会把多地区的量合并统计）。
+   语言默认跟着地区走 —— 选了德国就自动带出德语，省得去记小语种代码；
+   一旦手动改过语言就不再自动覆盖，并给一个「跟随地区」的退回入口。   */
+class Targeting {
+  constructor(prefix, opts) {
+    this.sel = $(prefix + '-geo');
+    this.lang = $(prefix + '-lang');
+    this.chips = $(prefix + '-chips');
+    this.note = $(prefix + '-note');
+    this.picked = [];
+    this.manual = false;
+    this.name = {};
 
+    this.sel.innerHTML = '<option value="">＋ 添加地区…</option>' +
+      opts.countries.map(g => `<optgroup label="${g.group}">` +
+        g.items.map(c => {
+          this.name[c.code] = c.name;
+          return `<option value="${c.code}" data-lang="${c.lang}">${c.name} (${c.code})</option>`;
+        }).join('') + '</optgroup>').join('');
+
+    this.lang.innerHTML = opts.languages
+      .map(l => `<option value="${l.code}">${l.name}</option>`).join('');
+
+    this.sel.onchange = () => {
+      const code = this.sel.value;
+      this.sel.selectedIndex = 0;
+      if (code) this.add(code);
+    };
+    this.lang.onchange = () => { this.manual = true; this.drawNote(); };
+  }
+
+  add(code) {
+    if (this.picked.includes(code)) return;
+    this.picked.push(code);
+    if (!this.manual) this.syncLang();
+    this.draw();
+  }
+
+  remove(code) {
+    this.picked = this.picked.filter(c => c !== code);
+    if (!this.manual) this.syncLang();
+    this.draw();
+  }
+
+  /* 语言跟「最后选中的那个地区」走。
+     刚点了德国就该给德语 —— 若跟第一个地区走，预填的美国会把德语压住，
+     表现就是「选了德国语言还是 en」，很反直觉。 */
+  syncLang() {
+    const last = this.picked[this.picked.length - 1];
+    if (!last) return;
+    const opt = this.sel.querySelector(`option[value="${last}"]`);
+    if (opt) this.lang.value = opt.dataset.lang;
+  }
+
+  draw() {
+    this.chips.innerHTML = this.picked.map(c =>
+      `<span class="chip"><b>${this.name[c] || c}</b> ${c}<i data-x="${c}" title="移除">×</i></span>`).join('');
+    this.chips.querySelectorAll('i[data-x]').forEach(x => {
+      x.onclick = () => this.remove(x.dataset.x);
+    });
+    this.drawNote();
+  }
+
+  drawNote() {
+    if (!this.note) return;
+    this.note.innerHTML = this.manual
+      ? '· 已手动指定 <a data-reset>跟随地区</a>'
+      : (this.picked.length ? '· 已按地区自动带出' : '');
+    const a = this.note.querySelector('[data-reset]');
+    if (a) a.onclick = () => { this.manual = false; this.syncLang(); this.drawNote(); };
+  }
+
+  get value() { return this.picked.slice(); }
+}
+
+let T = {};
+
+/* ---------------- 按钮 ---------------- */
 $('run-ideas').onclick = () => run('/api/keywords/ideas', {
   seeds: $('seeds').value,
   url: $('url').value,
-  geos: geos($('i-geo').value),
-  lang: $('i-lang').value.trim() || 'en',
+  geos: T.i.value,
+  lang: $('i-lang').value,
   min_volume: +$('i-min').value || 0,
 }, '拓词中…');
 
 $('run-volume').onclick = () => run('/api/keywords/volume', {
   keywords: $('words').value,
-  geos: geos($('v-geo').value),
-  lang: $('v-lang').value.trim() || 'en',
+  geos: T.v.value,
+  lang: $('v-lang').value,
 }, '取数中…');
 
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
 
-loadStatus();
+/* ---------------- 启动 ---------------- */
+(async () => {
+  const [d, opts] = await Promise.all([
+    loadStatus(),
+    fetch('/api/options').then(r => r.json()),
+  ]);
+  T.i = new Targeting('i', opts);
+  T.v = new Targeting('v', opts);
+  const init = (d.geo || 'US').toUpperCase();
+  [T.i, T.v].forEach(t => {
+    t.add(init);
+    if (d.lang) { t.lang.value = d.lang; t.manual = false; t.syncLang(); }
+    t.draw();
+  });
+})();

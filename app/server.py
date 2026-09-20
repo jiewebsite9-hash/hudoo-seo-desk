@@ -83,6 +83,10 @@ class Handler(BaseHTTPRequestHandler):
             st["repo"] = REPO
             return self._json(st)
 
+        if p == "/api/options":
+            from app.modules.keywords import locations
+            return self._json(locations.options())
+
         if p == "/api/jobs":
             return self._json(jobs.listing())
 
