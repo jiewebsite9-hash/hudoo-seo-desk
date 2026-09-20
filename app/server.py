@@ -130,6 +130,42 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("拓词", run).id})
 
+        if p == "/api/keywords/sop":
+            from app.modules.keywords import sop
+            geos = [g for g in (b.get("geos") or []) if g]
+
+            def run(j):
+                market = (geos[0] if geos else "US")
+                lang = b.get("lang") or "en"
+                minv = int(b.get("min_volume") or 0)
+                mixed = gkp.parse_keyword_text(b.get("mixed"))
+                header, rows, cut, stats = sop.build(
+                    seeds=gkp.parse_keyword_text(b.get("seeds")),
+                    competitor_sites=gkp.parse_keyword_text(b.get("sites")),
+                    customer_words=_lines(b.get("customer")),
+                    mixed_words=mixed,
+                    exclude_words=gkp.parse_keyword_text(b.get("exclude")),
+                    market=market, lang=lang, min_volume=minv,
+                    usd_rate=b.get("usd_rate") or None, job=j)
+                if not rows:
+                    return {"count": 0, "preview": [], "csv": None}
+                csv_path = sop.save_csv(header, rows)
+                xlsx_path = sop.save_workbook(
+                    header, rows, cut, stats,
+                    {"market": market, "lang": lang, "min_volume": minv, "mixed": mixed})
+                j.log("已导出 -> %s(总表 CSV)" % csv_path.name)
+                j.log("已导出 -> %s(4 张表的工作簿,可直接导进飞书)" % xlsx_path.name)
+                # 预览用中文表头,把 {市场} 占位换成实际市场名
+                keymap = dict(zip(sop.COLUMNS, header))
+                preview = [{keymap[k]: v for k, v in r.items() if k in keymap}
+                           for r in rows[:200]]
+                clean = {k: v for k, v in stats.items() if not k.startswith("_")}
+                return {"count": len(rows), "columns": header, "preview": preview,
+                        "csv": csv_path.name, "xlsx": xlsx_path.name,
+                        "truncated": len(rows) > 200, "stats": clean}
+
+            return self._json({"job": jobs.start("生成 SOP 总表", run).id})
+
         if p == "/api/keywords/volume":
             geos = [g for g in (b.get("geos") or []) if g]
             words = gkp.parse_keyword_text(b.get("keywords"))
@@ -142,6 +178,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": jobs.start("补搜索量", run).id})
 
         return self._json({"error": "没有这个接口"}, 404)
+
+
+def _lines(text):
+    """整行返回,不像 parse_keyword_text 那样只取第一列 ——
+    客户原始词那一栏允许写「词<Tab>中文<Tab>级别」,后两段不能被丢掉。"""
+    return [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
 
 
 def _finish(job, rows, prefix):

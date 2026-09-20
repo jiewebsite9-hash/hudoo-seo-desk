@@ -84,6 +84,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
 <nav>
   <button data-tab="ideas" class="active">拓词</button>
   <button data-tab="volume">补搜索量</button>
+  <button data-tab="sop">SOP 总表</button>
   <button data-tab="setup">设置</button>
 </nav>
 
@@ -137,6 +138,40 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
     </div>
   </section>
 
+  <!-- ============ SOP 总表 ============ -->
+  <section id="tab-sop" hidden>
+    <div class="card">
+      <h2>SOP 总表</h2>
+      <p class="hint">按「互旦关键词 SOP V2」的 20 列总表格式出数。<b>意图、优先级、金矿、搜索量区间、来源渠道</b>按口径规则自动判定；<b>客户级别、布局角色、目标URL、页面类型、页面状态、该页主词、备注</b>是人工判断列，留空等你填。会跑两轮取数（主市场 + 全球不限地区）。</p>
+      <div class="row">
+        <div><label>种子词（一行一个，走「GKP以关键字拓展」）</label>
+          <textarea id="s-seeds" placeholder="conveyor roller&#10;idler roller"></textarea></div>
+        <div><label>竞品网址（一行一个，走「GKP以网站拓展」）</label>
+          <textarea id="s-sites" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
+      </div>
+      <div class="row">
+        <div><label>客户原始词（可选，支持 词⇥中文⇥级别）</label>
+          <textarea id="s-customer" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea></div>
+        <div><label>混杂 / 泛词清单（命中的词最高只给 P1）</label>
+          <textarea id="s-mixed" placeholder="roller manufacturer&#10;rubber roller*&#10;steel roller*"></textarea></div>
+        <div><label>剔除清单（命中的词移入「剔除词」页）</label>
+          <textarea id="s-exclude" placeholder="*conveyor belt*&#10;*conveyor system*&#10;*industrial automation*&#10;roller&#10;pulley"></textarea></div>
+      </div>
+      <p class="hint" style="margin:-4px 0 12px">两个清单同一套语法，<b>默认整词匹配</b>：<code>roller</code> 只命中 roller 本身（对应剔除规则①泛词），不会误伤 conveyor roller。要覆盖一整类词必须加星号包住：<code>*conveyor belt*</code> 才能剔掉 belt conveyor belt、conveyor conveyor belt 这些（对应规则④）；<code>rubber roller*</code> 是「以…开头」。</p>
+      <div class="row">
+        <div style="flex:2.2">
+          <label>主市场（决定「{市场}月搜」那一列）</label>
+          <select id="s-geo"></select>
+          <div class="chips" id="s-chips"></div>
+        </div>
+        <div style="flex:1.3"><label>语言 <span class="note" id="s-note"></span></label><select id="s-lang"></select></div>
+        <div><label>最低月搜（剔除规则⑦）</label><input id="s-min" type="number" value="10"></div>
+        <div><label>USD 汇率</label><input id="s-rate" type="number" step="0.1" value="7.0"></div>
+      </div>
+      <button class="go" id="run-sop">生成总表</button>
+    </div>
+  </section>
+
   <!-- ============ 设置 ============ -->
   <section id="tab-setup" hidden>
     <div class="card">
@@ -163,8 +198,10 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
     <pre id="log"></pre>
     <div class="meta" id="meta" hidden>
       <span>共 <b id="cnt">0</b> 行</span>
-      <a class="dl" id="dl" href="#">下载完整 CSV</a>
+      <a class="dl" id="dl" href="#">下载 CSV</a>
+      <a class="dl" id="dlx" href="#" hidden>下载 xlsx 工作簿（4 张表）</a>
       <span class="ver" id="trunc"></span>
+      <span class="ver" id="stats" style="margin-left:auto"></span>
     </div>
     <div class="tblwrap" id="tblwrap" hidden><table id="tbl"></table></div>
   </div>

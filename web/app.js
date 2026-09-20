@@ -23,7 +23,7 @@ let sortState = { col: null, asc: false };
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['ideas', 'volume', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['ideas', 'volume', 'sop', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
   };
 });
 
@@ -106,9 +106,18 @@ function render(res) {
   $('cnt').textContent = res.count;
   $('meta').hidden = false;
   $('trunc').textContent = res.truncated ? '（表格只显示前 200 行，完整数据在 CSV 里）' : '';
+  const st = res.stats;
+  $('stats').innerHTML = st ? [
+    `P0 <b>${st.P0}</b>`, `P1 <b>${st.P1}</b>`, `P2 <b>${st.P2}</b>`,
+    `金矿 <b>${st['金矿']}</b>`, `剔除 <b>${st['剔除']}</b>`,
+    st['汇率'] ? `出价已按 1 USD = ${st['汇率']} ${st['币种']} 折算` : '',
+  ].filter(Boolean).join('　·　') : '';
   const dl = $('dl');
   if (res.csv) { dl.href = '/api/download?file=' + encodeURIComponent(res.csv); dl.hidden = false; }
   else dl.hidden = true;
+  const xl = $('dlx');
+  if (res.xlsx) { xl.href = '/api/download?file=' + encodeURIComponent(res.xlsx); xl.hidden = false; }
+  else xl.hidden = true;
   if (!lastRows.length) { $('tblwrap').hidden = true; return; }
   sortState = { col: null, asc: false };
   draw(res.columns || Object.keys(lastRows[0]));
@@ -239,6 +248,18 @@ $('run-volume').onclick = () => run('/api/keywords/volume', {
   lang: $('v-lang').value,
 }, '取数中…');
 
+$('run-sop').onclick = () => run('/api/keywords/sop', {
+  seeds: $('s-seeds').value,
+  sites: $('s-sites').value,
+  customer: $('s-customer').value,
+  mixed: $('s-mixed').value,
+  exclude: $('s-exclude').value,
+  geos: T.s.value,
+  lang: $('s-lang').value,
+  min_volume: +$('s-min').value || 0,
+  usd_rate: +$('s-rate').value || 0,
+}, '生成 SOP 总表中…');
+
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
 
 /* ---------------- 启动 ---------------- */
@@ -249,8 +270,9 @@ $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
   ]);
   T.i = new Targeting('i', opts);
   T.v = new Targeting('v', opts);
+  T.s = new Targeting('s', opts);
   const init = (d.geo || 'US').toUpperCase();
-  [T.i, T.v].forEach(t => {
+  [T.i, T.v, T.s].forEach(t => {
     t.add(init);
     if (d.lang) { t.lang.value = d.lang; t.manual = false; t.syncLang(); }
     t.draw();

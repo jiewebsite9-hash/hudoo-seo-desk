@@ -46,6 +46,7 @@ defaults:
   geo: "US"                # 地区,两位国家代码
   lang: "en"               # 语言
   min_volume: 10           # 拓词时过滤掉月均搜索量低于此值的词
+  usd_rate: 7.0            # SOP 总表的出价列固定用 USD;账号币种不是 USD 时按此汇率折算
 
 # ---------- 服务 ----------
 server:
