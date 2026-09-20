@@ -16,6 +16,7 @@ const CRED_CN = {
 };
 
 let poller = null;
+let afterJob = null;   // 作业真正跑完之后要做的事
 let lastRows = [];
 let sortState = { col: null, asc: false };
 
@@ -23,7 +24,7 @@ let sortState = { col: null, asc: false };
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['ideas', 'volume', 'sop', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['ideas', 'volume', 'sop', 'learn', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
   };
 });
 
@@ -97,6 +98,7 @@ function poll(id, since, btns) {
     $('outtitle').textContent = title(s);
     if (s.status === 'error') return showErr(s.error);
     if (s.result && s.result.preview) render(s.result);
+    if (afterJob) { const f = afterJob; afterJob = null; f(s); }
   }, 500);
 }
 const title = s => `${s.name} —— ${s.status === 'done' ? '完成' : '出错'}（${s.elapsed}s）`;
@@ -356,6 +358,43 @@ $('run-sop').onclick = () => run('/api/keywords/sop', {
   usd_rate: +$('s-rate').value || 0,
 }, '生成 SOP 总表中…');
 
+
+/* ---------------- 清单库 ---------------- */
+async function loadLib() {
+  const box = $('lib');
+  if (!box) return;
+  const { lists } = await fetch('/api/lists').then(r => r.json());
+  if (!lists || !lists.length) {
+    box.innerHTML = '<span class="hint">还没有学过的清单。用上面的功能学一份。</span>';
+    return;
+  }
+  box.innerHTML = '<div class="tblwrap"><table><thead><tr><th>名称</th><th>模式数</th><th>召回</th><th>误杀</th><th>学于</th><th>备注</th><th></th></tr></thead><tbody>' +
+    lists.map(l => `<tr><td><b>${l.name}</b></td><td>${l.patterns}</td>` +
+      `<td>${l.recall}%</td><td>${l.false_kill}%</td><td>${l.saved_at}</td>` +
+      `<td style="white-space:normal">${l.note || ''}</td>` +
+      `<td><span class="up" style="float:none" data-use="${l.file}">用到剔除清单 →</span></td></tr>`).join('') +
+    '</tbody></table></div>';
+  box.querySelectorAll('[data-use]').forEach(el => {
+    el.onclick = async () => {
+      const d = await fetch('/api/lists?load=' + encodeURIComponent(el.dataset.use)).then(r => r.json());
+      if (d.error) return showErr(d.error);
+      $('s-exclude').value = (d.patterns || []).join(String.fromCharCode(10));
+      document.querySelector('nav button[data-tab="sop"]').click();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+  });
+}
+
+$('run-learn').onclick = () => {
+  afterJob = () => loadLib();        // 学完再刷新库,不能用 run() 的 then(那时作业还没跑完)
+  run('/api/keywords/learn', {
+    cut: $('l-cut').value,
+    keep: $('l-keep').value,
+    min_support: +$('l-sup').value || 8,
+    allow_false_kill: +$('l-fk').value || 0,
+    save_as: $('l-name').value,
+  }, '学习中…');
+};
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
 
 /* ---------------- 启动 ---------------- */
@@ -368,6 +407,7 @@ $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
   T.i = new Targeting('i', opts);
   T.v = new Targeting('v', opts);
   T.s = new Targeting('s', opts);
+  loadLib();
   const init = (d.geo || 'US').toUpperCase();
   [T.i, T.v, T.s].forEach(t => {
     t.add(init);

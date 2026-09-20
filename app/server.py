@@ -101,6 +101,16 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(data)
 
+        if p == "/api/lists":
+            from app.modules.keywords import learn
+            name = (q.get("load") or [""])[0]
+            if name:
+                try:
+                    return self._json(learn.load_list(name))
+                except KeyError as e:
+                    return self._json({"error": str(e)}, 404)
+            return self._json({"lists": learn.list_saved()})
+
         if p == "/api/options":
             from app.modules.keywords import locations
             return self._json(locations.options())
@@ -177,6 +187,39 @@ class Handler(BaseHTTPRequestHandler):
                 return _finish(j, rows, "ideas", bool(b.get("usd")), b.get("usd_rate"))
 
             return self._json({"job": jobs.start("拓词", run).id})
+
+        if p == "/api/keywords/learn":
+            from app.modules.keywords import learn
+
+            def run(j):
+                cut = gkp.parse_keyword_text(b.get("cut"))
+                keep = gkp.parse_keyword_text(b.get("keep"))
+                j.log("剔除词 %d 个,保留词 %d 个" % (len(cut), len(keep)))
+                if not keep:
+                    j.log("[注意] 没给保留词,没法验证误杀 —— 学出来的清单可能过宽")
+                rows, metrics, core, rejected = learn.learn(
+                    cut, keep,
+                    min_support=int(b.get("min_support") or 8),
+                    allow_false_kill=int(b.get("allow_false_kill") or 0))
+                j.log("候选 %d 条 -> 过验证 + 去冗余后留下 %d 条"
+                      % (metrics["候选数"], metrics["学出模式数"]))
+                j.log("自检:召回 %.1f%%(%d/%d),误杀 %.1f%%(%d/%d)"
+                      % (metrics["召回"], metrics["命中剔除词"], metrics["剔除词总数"],
+                         metrics["误杀"], metrics["误杀数"], metrics["保留词总数"]))
+                path = learn.save_xlsx(rows, metrics, core, rejected)
+                j.log("已导出 -> %s" % path.name)
+                saved = None
+                if (b.get("save_as") or "").strip():
+                    saved = learn.save_list(b["save_as"].strip(), rows, metrics, core,
+                                            note=b.get("note") or "")
+                    j.log("已存进清单库:%s" % saved)
+                return {"count": len(rows), "columns": ["模式", "剔除中命中", "误杀保留词", "样例"],
+                        "preview": rows[:200], "csv": None, "xlsx": path.name,
+                        "truncated": len(rows) > 200, "stats": metrics,
+                        "patterns": [r["模式"] for r in rows],
+                        "core": [c["词"] for c in core], "saved": saved}
+
+            return self._json({"job": jobs.start("学剔除清单", run).id})
 
         if p == "/api/keywords/sop":
             from app.modules.keywords import sop
