@@ -1,0 +1,54 @@
+# ============================================================
+# 把这个文件复制成 config.local.yaml 再填真实凭据。
+# config.local.yaml 已在 .gitignore 里,不会进仓库。
+#
+#     copy config.example.yaml config.local.yaml
+#
+# 每一项也都可以改用环境变量,环境变量优先级更高(见括号内名字)。
+# ============================================================
+
+# ---------- Google Ads API(关键词规划师拓词/补搜索量)----------
+# 怎么申请见 docs/google-ads-setup.md
+google_ads:
+  developer_token: ""      # (GKP_DEVELOPER_TOKEN) MCC -> API 中心 -> 查看令牌
+  client_id: ""            # (GKP_CLIENT_ID)     OAuth 桌面应用客户端
+  client_secret: ""        # (GKP_CLIENT_SECRET)
+  refresh_token: ""        # (GKP_REFRESH_TOKEN) 跑一次 python -m app.auth 生成
+  login_customer_id: ""    # (GKP_LOGIN_CUSTOMER_ID) MCC 账号 ID,纯数字不带横杠
+
+# ---------- Claude API(执行 SEO skill)----------
+anthropic:
+  api_key: ""              # (ANTHROPIC_API_KEY) console.anthropic.com 自取
+  model: "claude-opus-5"
+  effort: "high"           # low / medium / high / xhigh / max
+
+# ---------- 排名监控(第 2 期启用)----------
+dataforseo:
+  login: ""                # (DATAFORSEO_LOGIN)
+  password: ""             # (DATAFORSEO_PASSWORD)
+
+# ---------- 飞书推送(第 2 期启用)----------
+feishu:
+  app_id: ""               # (FEISHU_APP_ID)
+  app_secret: ""           # (FEISHU_APP_SECRET)
+  receive_id: ""           # 接收消息的 open_id
+
+# ---------- 本地路径 ----------
+paths:
+  # skill 内容包目录。留空则依次尝试:
+  #   ./skills  ->  ~/.claude/skills
+  skills_dir: ""
+  # 导出文件落在哪
+  out_dir: "out"
+
+# ---------- 取数默认值(可在界面上临时覆盖)----------
+defaults:
+  geo: "US"                # 地区,两位国家代码
+  lang: "en"               # 语言
+  min_volume: 10           # 拓词时过滤掉月均搜索量低于此值的词
+
+# ---------- 服务 ----------
+server:
+  host: "127.0.0.1"        # 只监听本机,别改成 0.0.0.0
+  port: 8790
+  open_browser: true

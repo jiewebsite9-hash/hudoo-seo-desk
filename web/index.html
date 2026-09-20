@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>互旦 SEO 工作台</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --line:#e3e6ea; --ink:#1c2024; --dim:#6b7280;
+  --accent:#2563eb; --ok:#0f9d58; --warn:#b45309; --err:#dc2626;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,"Microsoft YaHei Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:13px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);
+  padding:12px 20px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:5}
+h1{font-size:20px;margin:0;font-weight:650;letter-spacing:-.01em}
+.ver{color:var(--dim);font-size:11.5px;font-family:var(--mono)}
+.pill{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.pill span{font-size:11.5px;padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--dim)}
+.pill span.on{color:var(--ok);border-color:#bfe5cd;background:#f2fbf5}
+.pill span.off{color:var(--err);border-color:#f3c9c9;background:#fdf4f4}
+nav{display:flex;gap:2px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+nav button{background:none;border:0;border-bottom:2px solid transparent;padding:10px 14px;
+  font:inherit;color:var(--dim);cursor:pointer}
+nav button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+main{padding:20px;max-width:1240px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 5px;font-weight:650;letter-spacing:-.005em}
+.card p.hint{margin:0 0 14px;color:var(--dim);font-size:11.5px}
+label{display:block;font-size:11.5px;color:var(--dim);margin:0 0 5px}
+textarea,input,select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;
+  font:inherit;background:#fff;color:inherit}
+textarea{min-height:110px;resize:vertical;font-family:var(--mono);font-size:13px}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.row>div{flex:1;min-width:130px}
+button.go{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:9px 20px;
+  font:inherit;font-weight:600;cursor:pointer}
+button.go:disabled{background:#9aa6b8;cursor:not-allowed}
+button.ghost{background:#fff;border:1px solid var(--line);border-radius:7px;padding:8px 14px;
+  font:inherit;cursor:pointer}
+#log{background:#10151c;color:#c8d3e0;font-family:var(--mono);font-size:12.5px;
+  padding:12px 14px;border-radius:8px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none}
+#log.show{display:block}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{background:#fafbfc;font-weight:650;font-size:11.5px;letter-spacing:.03em;color:var(--dim);
+  position:sticky;top:0;cursor:pointer;user-select:none}
+th:hover{color:var(--accent)}
+tbody tr:hover{background:#f8fafc}
+.tblwrap{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.tag{font-size:11.5px;padding:1px 7px;border-radius:99px}
+.tag.hi{background:#fff2e8;color:#c2410c}
+.tag.mid{background:#fffbe8;color:#a16207}
+.meta{display:flex;align-items:center;gap:14px;margin:14px 0 10px;flex-wrap:wrap}
+.meta b{font-size:16px}
+a.dl{color:var(--accent);text-decoration:none;font-weight:600}
+.err{background:#fdf4f4;border:1px solid #f3c9c9;color:#991b1b;padding:12px 14px;
+  border-radius:8px;white-space:pre-wrap;font-size:13px;margin-bottom:12px;display:none}
+.err.show{display:block}
+code{background:#eef1f5;padding:1px 6px;border-radius:4px;font-family:var(--mono);font-size:11.5px}
+.kv{display:grid;grid-template-columns:200px 1fr;gap:6px 14px;font-size:13px}
+.kv div:nth-child(odd){color:var(--dim)}
+ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>互旦 SEO 工作台</h1><span class="ver" id="ver"></span>
+  <div class="pill" id="pills"></div>
+</header>
+
+<nav>
+  <button data-tab="ideas" class="active">拓词</button>
+  <button data-tab="volume">补搜索量</button>
+  <button data-tab="setup">设置</button>
+</nav>
+
+<main>
+  <div class="err" id="err"></div>
+
+  <!-- ============ 拓词 ============ -->
+  <section id="tab-ideas">
+    <div class="card">
+      <h2>拓词</h2>
+      <p class="hint">对应关键词规划师的「发现新关键字」。种子词一行一个，超过 20 个会自动分批去重。返回的每个词自带搜索量、竞争度和页首出价，不用再去别处补数。</p>
+      <label>种子词（一行一个）</label>
+      <textarea id="seeds" placeholder="conveyor roller&#10;idler roller"></textarea>
+      <label style="margin-top:12px">或按页面拓词（填了这个就不用种子词）</label>
+      <input id="url" placeholder="https://competitor.com/products/">
+      <div class="row" style="margin-top:12px">
+        <div><label>地区（必填，逗号分隔）</label><input id="i-geo" value="US"></div>
+        <div><label>语言</label><input id="i-lang" value="en"></div>
+        <div><label>最低月均搜索量</label><input id="i-min" type="number" value="10"></div>
+      </div>
+      <button class="go" id="run-ideas">开始拓词</button>
+    </div>
+  </section>
+
+  <!-- ============ 补搜索量 ============ -->
+  <section id="tab-volume" hidden>
+    <div class="card">
+      <h2>补搜索量</h2>
+      <p class="hint">对应「获取搜索量和预测数据」。一次最多 1 万个词，是给已有词库补主口径数据最快的路子。可以直接粘 CSV，只取第一列。</p>
+      <label>关键词（一行一个）</label>
+      <textarea id="words" placeholder="conveyor rollers&#10;gravity roller conveyor"></textarea>
+      <div class="row" style="margin-top:12px">
+        <div><label>地区（必填，逗号分隔）</label><input id="v-geo" value="US"></div>
+        <div><label>语言</label><input id="v-lang" value="en"></div>
+      </div>
+      <button class="go" id="run-volume">开始取数</button>
+    </div>
+  </section>
+
+  <!-- ============ 设置 ============ -->
+  <section id="tab-setup" hidden>
+    <div class="card">
+      <h2>连接状态</h2>
+      <p class="hint">凭据只存在本机的 <code>config.local.yaml</code>，这个文件在 .gitignore 里，不会进仓库。界面只显示配没配，不显示内容。</p>
+      <div class="kv" id="cfgkv"></div>
+      <div style="margin-top:14px"><button class="ghost" id="run-check">自检 Google Ads 连接</button></div>
+    </div>
+    <div class="card">
+      <h2>首次配置</h2>
+      <ol class="steps">
+        <li>把 <code>config.example.yaml</code> 复制成 <code>config.local.yaml</code></li>
+        <li>填 <code>google_ads</code> 段的 <code>developer_token</code>、<code>client_id</code>、<code>client_secret</code>、<code>login_customer_id</code></li>
+        <li>命令行跑 <code>python -m app.main auth</code>，浏览器点一次「允许」，<code>refresh_token</code> 会自动写回</li>
+        <li>回到这一页点「自检」</li>
+      </ol>
+      <p class="hint" style="margin:10px 0 0">访问级别必须是「基本(Basic)」——测试和探索者都会屏蔽关键词规划师接口。详见仓库 README。</p>
+    </div>
+  </section>
+
+  <!-- ============ 共用:日志 + 结果 ============ -->
+  <div class="card" id="outbox" hidden>
+    <h2 id="outtitle">运行中</h2>
+    <pre id="log"></pre>
+    <div class="meta" id="meta" hidden>
+      <span>共 <b id="cnt">0</b> 行</span>
+      <a class="dl" id="dl" href="#">下载完整 CSV</a>
+      <span class="ver" id="trunc"></span>
+    </div>
+    <div class="tblwrap" id="tblwrap" hidden><table id="tbl"></table></div>
+  </div>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
