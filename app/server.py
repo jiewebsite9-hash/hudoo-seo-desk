@@ -106,9 +106,39 @@ class Handler(BaseHTTPRequestHandler):
 
         return self._json({"error": "没有这个接口"}, 404)
 
+    # ---------------------------------------------------------- 文件解析
+    def _parse_file(self):
+        """上传的词表文件 -> 行数组。
+
+        放在服务端做,是因为真实文件很脏:GKP 网页版导出的 CSV 是 **UTF-16 + Tab 分隔**,
+        Excel 另存的可能是 GBK,还有 xlsx。这些在浏览器里都处理不了。
+        """
+        from urllib.parse import unquote
+        n = int(self.headers.get("Content-Length") or 0)
+        if not n:
+            return self._json({"error": "没收到文件内容"}, 400)
+        if n > 20 * 1024 * 1024:
+            return self._json({"error": "文件超过 20MB"}, 400)
+        raw = self.rfile.read(n)
+        name = unquote(self.headers.get("X-Filename") or "上传文件")
+        try:
+            rows, note = parse_table_bytes(raw, name)
+        except Exception as e:
+            return self._json({"error": "解析失败:%s: %s" % (type(e).__name__, e)}, 400)
+        if not rows:
+            return self._json({"error": "文件里没读到内容"}, 400)
+        return self._json({"name": name, "count": len(rows), "note": note,
+                           "rows": rows[:20000]})
+
     # ---------------------------------------------------------- POST
     def do_POST(self):
         p = urlparse(self.path).path
+
+        # 必须在 _body() 之前 —— 文件上传的请求体是二进制,
+        # 一旦被 _body() 按 JSON 读掉,这里再读 Content-Length 就会永久阻塞。
+        if p == "/api/parse-file":
+            return self._parse_file()
+
         b = self._body()
 
         if p == "/api/keywords/check":
@@ -178,6 +208,100 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": jobs.start("补搜索量", run).id})
 
         return self._json({"error": "没有这个接口"}, 404)
+
+
+HEADER_WORDS = {"keyword", "keywords", "关键词", "词", "term", "query", "search term"}
+
+
+def parse_table_bytes(raw, filename=""):
+    """把上传的 txt / csv / tsv / xlsx 字节流解析成 [[单元格,...], ...]。
+
+    返回 (行数组, 说明文字)。说明会告诉用户识别出了什么编码/格式,
+    出问题时一眼能看出是不是认错了。
+    """
+    low = filename.lower()
+
+    # ---- xlsx ----
+    if low.endswith((".xlsx", ".xlsm")):
+        import io
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb[wb.sheetnames[0]]
+        rows = []
+        for r in ws.iter_rows(values_only=True):
+            cells = ["" if c is None else str(c).strip() for c in r]
+            while cells and not cells[-1]:
+                cells.pop()
+            if cells and any(cells):
+                rows.append(cells)
+        wb.close()
+        return _strip_header(rows), "xlsx · 工作表「%s」" % ws.title
+
+    # ---- 文本:逐个编码试,UTF-16 放前面(GKP 导出就是它)----
+    text, enc = None, None
+    for candidate in ("utf-8-sig", "utf-16", "utf-8", "gb18030", "big5", "latin-1"):
+        try:
+            t = raw.decode(candidate)
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+        # UTF-16 解错时常见表现是夹杂大量 NUL
+        if "\x00" in t:
+            continue
+        text, enc = t, candidate
+        break
+    if text is None:
+        return [], "认不出编码"
+
+    lines = [ln for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    # 分隔符:Tab 优先(GKP 导出是 Tab),否则逗号
+    sample = "\n".join(lines[:40])
+    sep = "\t" if sample.count("\t") >= sample.count(",") and "\t" in sample else ","
+    rows = []
+    for ln in lines:
+        if not ln.strip():
+            continue
+        cells = [c.strip().strip('"') for c in ln.split(sep)]
+        while cells and not cells[-1]:
+            cells.pop()
+        if cells and any(cells):
+            rows.append(cells)
+    if sep not in sample:
+        note = "%s · 单列" % enc
+    else:
+        note = "%s · %s 分隔" % (enc, "Tab" if sep == "\t" else "逗号")
+    return _strip_header(rows), note
+
+
+def _strip_header(rows):
+    """剥掉文件开头的前言和表头。
+
+    GKP 网页版导出的 CSV 长这样 —— 前两行是标题和日期,第三行才是真表头:
+        关键字统计信息
+        2026-09-20
+        Keyword <Tab> Avg. monthly searches <Tab> Competition
+        conveyor roller <Tab> 4400 <Tab> High
+    所以先按「数据区是几列」判断,把开头那些列数明显偏少的前言行逐行扔掉,
+    再扔掉一行表头。单列词表(每行就一个词)不会被误伤。
+    """
+    out = list(rows)
+    if not out:
+        return out
+
+    # 数据区的典型列数:取后半部分的众数,避开开头的前言行
+    tail = out[max(0, len(out) // 2):]
+    widths = {}
+    for r in tail:
+        widths[len(r)] = widths.get(len(r), 0) + 1
+    modal = max(widths, key=widths.get) if widths else 1
+
+    # 前言行:列数比数据区少,且还剩得下数据
+    while len(out) > 1 and modal > 1 and len(out[0]) < modal:
+        out.pop(0)
+
+    # 表头行
+    if out and out[0] and out[0][0].strip().lower() in HEADER_WORDS:
+        out.pop(0)
+    return out
 
 
 def _lines(text):

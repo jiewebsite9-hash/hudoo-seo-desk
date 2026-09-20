@@ -155,6 +155,84 @@ function showErr(msg) {
   if (msg) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+/* ---------------- 词表文件上传 ----------------
+   解析放在服务端：GKP 网页版导出的 CSV 是 UTF-16 + Tab 分隔，
+   Excel 另存可能是 GBK，还有 xlsx —— 这些浏览器里都读不了。
+   `full=true` 的字段（客户原始词）保留整行，其余只取第一列。   */
+const ACCEPT = '.txt,.csv,.tsv,.xlsx,.xlsm';
+
+function attachUploader(ta) {
+  const full = ta.dataset.full === '1';
+  const label = ta.closest('div,section')?.querySelector('label') ||
+                ta.previousElementSibling;
+  const note = document.createElement('span');
+  note.className = 'upnote';
+  note.hidden = true;
+  ta.insertAdjacentElement('afterend', note);
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = ACCEPT;
+  input.hidden = true;
+  document.body.appendChild(input);
+
+  const link = document.createElement('span');
+  link.className = 'up';
+  link.textContent = '⬆ 上传文件';
+  link.title = '支持 txt / csv / tsv / xlsx，也可以直接把文件拖进输入框';
+  if (label) label.appendChild(link);
+
+  async function send(file) {
+    if (!file) return;
+    link.classList.add('busy');
+    link.textContent = '解析中…';
+    note.hidden = true;
+    try {
+      const buf = await file.arrayBuffer();
+      const r = await fetch('/api/parse-file', {
+        method: 'POST',
+        headers: { 'X-Filename': encodeURIComponent(file.name) },
+        body: buf,
+      }).then(x => x.json());
+      if (r.error) throw new Error(r.error);
+      const lines = r.rows.map(row => full ? row.join('\t') : (row[0] || ''))
+                          .filter(Boolean);
+      // 去重但保留顺序
+      const seen = new Set();
+      const uniq = lines.filter(l => {
+        const k = l.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      });
+      ta.value = uniq.join('\n');
+      note.className = 'upnote';
+      note.textContent = `已读入 ${file.name}：${uniq.length} 行` +
+        (uniq.length < lines.length ? `（去重 ${lines.length - uniq.length}）` : '') +
+        `　·　识别为 ${r.note}`;
+      note.hidden = false;
+    } catch (e) {
+      note.className = 'upnote bad';
+      note.textContent = '读取失败：' + e.message;
+      note.hidden = false;
+    } finally {
+      link.classList.remove('busy');
+      link.textContent = '⬆ 上传文件';
+      input.value = '';
+    }
+  }
+
+  link.onclick = () => input.click();
+  input.onchange = () => send(input.files[0]);
+
+  ['dragenter', 'dragover'].forEach(ev => ta.addEventListener(ev, e => {
+    e.preventDefault(); ta.classList.add('drop');
+  }));
+  ['dragleave', 'drop'].forEach(ev => ta.addEventListener(ev, e => {
+    e.preventDefault(); ta.classList.remove('drop');
+  }));
+  ta.addEventListener('drop', e => send(e.dataTransfer.files[0]));
+}
+
 /* ---------------- 地区 / 语言选择器 ----------------
    地区可加多个（GKP 会把多地区的量合并统计）。
    语言默认跟着地区走 —— 选了德国就自动带出德语，省得去记小语种代码；
@@ -268,6 +346,7 @@ $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
     loadStatus(),
     fetch('/api/options').then(r => r.json()),
   ]);
+  document.querySelectorAll('textarea').forEach(attachUploader);
   T.i = new Targeting('i', opts);
   T.v = new Targeting('v', opts);
   T.s = new Targeting('s', opts);
