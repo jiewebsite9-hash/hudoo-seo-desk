@@ -210,6 +210,43 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("拓词", run).id})
 
+        if p == "/api/keywords/derive":
+            from app.modules.keywords import derive, learn
+
+            def run(j):
+                res = derive.derive(
+                    material=b.get("material"),
+                    sample_words=gkp.parse_keyword_text(b.get("sample")),
+                    extra=b.get("extra"), job=j)
+                saved = None
+                if (b.get("save_as") or "").strip():
+                    rows, metrics, core, note = derive.to_list_payload(
+                        res, b["save_as"], b.get("note") or "")
+                    saved = learn.save_list(b["save_as"].strip(), rows, metrics, core,
+                                            note=note or "从客户资料生成")
+                    j.log("已存进清单库:%s" % saved)
+                pv = res.get("preview") or {}
+                return {"count": len(res["exclude"]),
+                        "columns": ["模式", "硬剔", "命中", "实剔", "被豁免", "理由", "样例"],
+                        "preview": pv.get("rows") or
+                                   [{"模式": e["pattern"], "理由": e.get("reason", "")}
+                                    for e in res["exclude"]],
+                        "csv": None, "truncated": False,
+                        "stats": {"剔除条数": len(res["exclude"]),
+                                  "混杂条数": len(res["mixed"]),
+                                  "策略词": len(res["strategy"]),
+                                  "核心词": len(res["core"]),
+                                  "样本实剔": pv.get("cut"),
+                                  "核心词救回": pv.get("saved"),
+                                  "本次花费": ("$%s" % res["cost"]) if res.get("cost") is not None else "—"},
+                        "lists": {"exclude": [e["pattern"] for e in res["exclude"]],
+                                  "mixed": [m["pattern"] for m in res["mixed"]],
+                                  "strategy": [s["keyword"] for s in res["strategy"]],
+                                  "core": res["core"]},
+                        "saved": saved}
+
+            return self._json({"job": jobs.start("从客户资料产出清单", run).id})
+
         if p == "/api/llm/check":
             from app.modules.llm import client as llm
 

@@ -272,6 +272,23 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <button class="go" id="run-learn">开始学习</button>
     </div>
     <div class="card">
+      <h2>从客户资料生成清单</h2>
+      <p class="hint">新项目还没有历史数据可学时用这个。把<b>启动会纪要、产品手册、产品线说明</b>贴进来，调一次 LLM 产出三份清单。<b>只调这一次</b>——清单存进库之后，筛词全程零 AI。</p>
+      <div class="row">
+        <div style="flex:2"><label>客户资料（启动会纪要 / 产品手册 / 做什么不做什么）</label>
+          <textarea id="d-mat" style="min-height:150px" placeholder="客户做输送滚筒，包括钢制滚筒、包胶滚筒、改向滚筒、铝合金滚筒。&#10;不生产：电动滚筒（motorized pulley / drum motor）、整机输送系统、输送带本身。&#10;09-17 启动会确认：散料皮带机托辊线客户未确认生产，暂不做。"></textarea></div>
+        <div><label>候选词样本（强烈建议给，用来验证清单准不准）</label>
+          <textarea id="d-sample" data-tpl="words" style="min-height:150px" placeholder="把拓词结果粘一批进来，最多取前 300 个"></textarea></div>
+      </div>
+      <div class="row">
+        <div style="flex:2"><label>补充说明（可选）</label><input id="d-extra" placeholder="例如：主做美国市场，客户只做 B2B 批量"></div>
+        <div><label>存进清单库（留空则只看不存）</label><input id="d-name" placeholder="例如：某某设备行业"></div>
+      </div>
+      <button class="go" id="run-derive">生成清单</button>
+      <p class="hint" style="margin:12px 0 0">⚠️ <b>LLM 产出的是草稿不是结论。</b>给了候选词样本的话，会当场算出每条模式会杀掉哪些词、哪些被核心词豁免救回——<b>先看这个再决定入不入库</b>。剔除比例超过 60% 会给出警告。</p>
+    </div>
+
+    <div class="card">
       <h2>清单库</h2>
       <p class="hint">学过的清单存在本机 <code>data/lists/</code>，不进仓库。点「用到剔除清单」会直接填进 SOP 总表页。</p>
       <div id="lib"></div>

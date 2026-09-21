@@ -87,13 +87,19 @@ def cost_of(model, usage):
 
 # ---------------------------------------------------------------- 调用
 
-def complete(system, user, *, skill=None, stream=True, on_text=None, log=None):
+def complete(system, user, *, skill=None, stream=True, on_text=None, log=None,
+             max_tokens=None, effort=None, thinking=None):
     """跑一次补全。返回 {text, usage, cost, model, provider, seconds}。
 
     `on_text(chunk)` 在流式时逐段回调,用来把生成过程写进作业日志。
     """
     log = log or (lambda m: None)
     s = settings(skill)
+    if max_tokens:
+        s["max_tokens"] = int(max_tokens)
+    if effort is not None:
+        s["effort"] = effort
+    s["thinking"] = thinking
     t0 = time.time()
     if s["provider"] == "anthropic":
         text, usage = _anthropic(s, system, user, stream, on_text)
@@ -129,14 +135,29 @@ def _openai_compatible(s, system, user, stream, on_text):
           "messages": [{"role": "system", "content": system},
                        {"role": "user", "content": user}],
           "max_tokens": s["max_tokens"], "stream": stream}
+    extra = {}
     if s["effort"]:
         # reasoning_effort 不是所有兼容端点都认,走 extra_body 更稳
-        kw["extra_body"] = {"reasoning_effort": s["effort"]}
+        extra["reasoning_effort"] = s["effort"]
+    if s.get("thinking") is False:
+        # **结构化抽取任务要关掉深思。** 否则模型可能把 max_tokens 全花在推理上,
+        # content 返回空字符串 —— 表现是「解析不到 JSON」,很难猜到真因。
+        extra["thinking"] = {"type": "disabled"}
+    if extra:
+        kw["extra_body"] = extra
 
     try:
         if not stream:
             r = cli.chat.completions.create(**kw)
-            return r.choices[0].message.content or "", _usage_openai(r.usage)
+            ch = r.choices[0]
+            text = ch.message.content or ""
+            if not text and getattr(ch, "finish_reason", "") == "length":
+                raise LlmError(
+                    "输出撞到 max_tokens(%d)上限,内容被截断成空。"
+                    "这类任务多半是把额度全花在推理上了 —— "
+                    "把 max_tokens 调大,或调用时传 thinking=False 关掉深思。"
+                    % s["max_tokens"])
+            return text, _usage_openai(r.usage)
         kw["stream_options"] = {"include_usage": True}
         parts, usage = [], {}
         for ev in cli.chat.completions.create(**kw):

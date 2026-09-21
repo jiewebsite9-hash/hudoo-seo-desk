@@ -410,6 +410,25 @@ async function loadLib() {
   });
 }
 
+
+$('run-derive').onclick = () => {
+  if (!$('d-mat').value.trim()) return showErr('客户资料是空的。');
+  afterJob = (s) => {                       // 生成完把三份清单填进对应输入框
+    const L = (s.result || {}).lists;
+    if (!L) return;
+    const NLC = String.fromCharCode(10);
+    $('s-exclude').value = (L.exclude || []).join(NLC);
+    $('s-mixed').value = (L.mixed || []).join(NLC);
+    if ((L.strategy || []).length) $('s-customer').value = (L.strategy || []).join(NLC);
+    loadLib();
+  };
+  run('/api/keywords/derive', {
+    material: $('d-mat').value,
+    sample: $('d-sample').value,
+    extra: $('d-extra').value,
+    save_as: $('d-name').value,
+  }, '从客户资料生成清单…');
+};
 $('run-learn').onclick = () => {
   afterJob = () => loadLib();        // 学完再刷新库,不能用 run() 的 then(那时作业还没跑完)
   run('/api/keywords/learn', {
