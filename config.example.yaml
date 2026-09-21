@@ -48,6 +48,27 @@ defaults:
   min_volume: 10           # 拓词时过滤掉月均搜索量低于此值的词
   usd_rate: 6.9            # 出价换算成 USD 时用的汇率。账号币种不是 USD 时,出价列按此折算
 
+# ---------- 排名监控项目 ----------
+# 客户项目写在这里(config.local.yaml),**公开仓库不带任何客户信息**。
+# domain 务必写裸域名:写成 example.com/ 或 https://example.com/ 会让名次
+# 永远匹配不上,表现是「这个站一个词都没排名」,而且不报错。
+rank_projects:
+  - name: "示例项目"
+    domain: "example.com"      # 裸域名,别带 http:// 和尾斜杠
+    gl: "US"                   # 搜索所在地区
+    hl: "en"                   # 界面语言
+    device: "desktop"          # desktop / mobile
+    depth: 3                   # 查前几页,3 = 前 30 名
+    keywords:
+      - "example keyword one"
+      - "example keyword two"
+
+# ---------- 排名监控参数 ----------
+ranks:
+  batch_size: 100            # standard 模式每次下单词数(上限 100)
+  poll_sec: 15               # 轮询间隔
+  timeout_sec: 1800          # 整轮取结果上限;超时未回的词记 error,下轮取回不重复扣费
+
 # ---------- 服务 ----------
 server:
   host: "127.0.0.1"        # 只监听本机,别改成 0.0.0.0

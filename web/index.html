@@ -91,6 +91,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
   <button data-tab="ideas" class="active">拓词</button>
   <button data-tab="volume">补搜索量</button>
   <button data-tab="sop">SOP 总表</button>
+  <button data-tab="ranks">排名监控</button>
   <button data-tab="learn">学清单</button>
   <button data-tab="setup">设置</button>
 </nav>
@@ -181,6 +182,33 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
     </div>
   </section>
 
+
+
+  <!-- ============ 排名监控 ============ -->
+  <section id="tab-ranks" hidden>
+    <div class="card">
+      <h2>排名检查</h2>
+      <p class="hint">走 DataForSEO 的 Google 自然结果，无验证码、免代理。两种计费模式拿的是<b>同一份数据</b>，位次口径一致：<b>队列模式</b>约 $0.0015/词、批量下单十分钟量级；<b>实时模式</b>约 $0.005/词且逐词同步（11 秒/词），只在就查几个词时用。</p>
+      <div class="row">
+        <div style="flex:1.4"><label>项目</label><select id="r-proj"></select></div>
+        <div style="flex:1.4"><label>域名（裸域名，别带 http:// 和尾斜杠）</label><input id="r-domain" placeholder="example.com"></div>
+        <div><label>地区</label><select id="r-gl"></select></div>
+        <div><label>语言</label><select id="r-hl"></select></div>
+      </div>
+      <label>关键词（一行一个）</label>
+      <textarea id="r-kw" data-tpl="words" placeholder="选了项目会自动带出该项目的词"></textarea>
+      <div class="row" style="margin-top:12px">
+        <div><label>设备</label><select id="r-dev"><option value="desktop">桌面</option><option value="mobile">移动</option></select></div>
+        <div><label>查前几页</label><select id="r-depth"><option value="1">前 10 名</option><option value="2">前 20 名</option><option value="3" selected>前 30 名</option><option value="5">前 50 名</option><option value="10">前 100 名</option></select></div>
+        <div><label>计费模式</label><select id="r-mode"><option value="standard">队列（省 70%）</option><option value="live">实时（贵且慢）</option></select></div>
+        <div style="flex:1.6"><label>预估花费</label><div id="r-cost" style="padding-top:8px;font-weight:600">—</div></div>
+      </div>
+      <button class="go" id="run-ranks">开始检查</button>
+      <button class="ghost" id="run-ranks-failed" style="margin-left:8px">只补查出错词</button>
+      <button class="ghost" id="run-ranks-view" style="margin-left:8px">看最近一轮</button>
+      <p class="hint" style="margin:12px 0 0">⚠ 域名写法是这里最容易翻车的地方。写成 <code>example.com/</code> 或带 <code>https://</code> 会让匹配永远落空、把整个项目记成「一个词都没排名」，<b>而且不报错</b>。程序会自动归一化并在日志里提示。</p>
+    </div>
+  </section>
 
   <!-- ============ 学清单 ============ -->
   <section id="tab-learn" hidden>

@@ -24,7 +24,7 @@ let sortState = { col: null, asc: false };
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['ideas', 'volume', 'sop', 'learn', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['ideas', 'volume', 'sop', 'ranks', 'learn', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
   };
 });
 
@@ -109,12 +109,16 @@ function render(res) {
   $('cnt').textContent = res.count;
   $('meta').hidden = false;
   $('trunc').textContent = res.truncated ? '（表格只显示前 200 行，完整数据在 CSV 里）' : '';
+  // 统计栏按 stats 里实际有什么就显示什么 —— 拓词/SOP/排名/学清单各有各的字段，
+  // 硬编码字段名会在别的模块上显示成 undefined。
   const st = res.stats;
-  $('stats').innerHTML = st ? [
-    `P0 <b>${st.P0}</b>`, `P1 <b>${st.P1}</b>`, `P2 <b>${st.P2}</b>`,
-    `金矿 <b>${st['金矿']}</b>`, `剔除 <b>${st['剔除']}</b>`,
-    st['汇率'] ? `出价已按 1 USD = ${st['汇率']} ${st['币种']} 折算` : '',
-  ].filter(Boolean).join('　·　') : '';
+  const HIDE = new Set(['币种', '汇率', '市场', '域名', '候选数',
+                        '剔除词总数', '保留词总数', '命中剔除词', '误杀数']);
+  $('stats').innerHTML = st ? Object.entries(st)
+    .filter(([k, v]) => !k.startsWith('_') && !HIDE.has(k) && v !== null && v !== '')
+    .map(([k, v]) => `${k} <b>${v}</b>${/召回|误杀/.test(k) ? '%' : ''}`)
+    .concat(st['汇率'] ? [`出价按 1 USD = ${st['汇率']} ${st['币种']} 折算`] : [])
+    .join('　·　') : '';
   const dl = $('dl');
   if (res.csv) { dl.href = '/api/download?file=' + encodeURIComponent(res.csv); dl.hidden = false; }
   else dl.hidden = true;
@@ -395,6 +399,83 @@ $('run-learn').onclick = () => {
     save_as: $('l-name').value,
   }, '学习中…');
 };
+
+/* ---------------- 排名监控 ---------------- */
+let rankUnit = { standard: 0.0015, live: 0.005 };
+
+function rankCost() {
+  const n = $('r-kw').value.split(String.fromCharCode(10)).filter(x => x.trim()).length;
+  const pages = +$('r-depth').value || 3;
+  const mode = $('r-mode').value;
+  const base = mode === 'standard' ? 0.0006 : 0.002;
+  const unit = base * (1 + 0.75 * (pages - 1));
+  $('r-cost').textContent = n ? `$${(unit * n).toFixed(4)}　(${n} 词 × $${unit.toFixed(4)})` : '—';
+}
+
+async function loadProjects(opts) {
+  const sel = $('r-proj');
+  if (!sel) return;
+  const d = await fetch('/api/ranks/projects').then(r => r.json());
+  rankUnit = d.unit || rankUnit;
+  window.__projects = d.projects || [];
+  sel.innerHTML = '<option value="">（手填域名）</option>' +
+    window.__projects.map((p, i) => `<option value="${i}">${p.name}　${p.host}　${p.keywords.length} 词</option>`).join('');
+  // 地区/语言下拉复用 /api/options 的数据
+  $('r-gl').innerHTML = opts.countries.map(g => `<optgroup label="${g.group}">` +
+    g.items.map(c => `<option value="${c.code}">${c.name} (${c.code})</option>`).join('') + '</optgroup>').join('');
+  $('r-hl').innerHTML = opts.languages.map(l => `<option value="${l.code}">${l.name}</option>`).join('');
+  $('r-gl').value = 'US'; $('r-hl').value = 'en';
+  sel.onchange = () => {
+    const p = window.__projects[+sel.value];
+    if (!p) return;
+    $('r-domain').value = p.domain;
+    $('r-kw').value = (p.keywords || []).join(String.fromCharCode(10));
+    $('r-gl').value = (p.gl || 'US').toUpperCase();
+    $('r-hl').value = p.hl || 'en';
+    $('r-dev').value = p.device || 'desktop';
+    $('r-depth').value = String(p.depth || 3);
+    rankCost();
+  };
+  ['r-kw', 'r-depth', 'r-mode'].forEach(id => {
+    $(id).addEventListener('input', rankCost);
+    $(id).addEventListener('change', rankCost);
+  });
+  rankCost();
+}
+
+function rankPayload(extra) {
+  return Object.assign({
+    domain: $('r-domain').value,
+    keywords: $('r-kw').value,
+    gl: $('r-gl').value, hl: $('r-hl').value,
+    device: $('r-dev').value, depth: +$('r-depth').value || 3,
+    mode: $('r-mode').value,
+  }, extra || {});
+}
+
+$('run-ranks').onclick = () => {
+  const txt = $('r-cost').textContent;
+  if (!confirm(`这一轮会真实扣费，预估 ${txt}。确定开始吗？`)) return;
+  run('/api/ranks/check', rankPayload(), '排名检查中…');
+};
+
+$('run-ranks-failed').onclick = () => {
+  if (!confirm('只补查从来没查成功过的词，会产生少量费用。继续吗？')) return;
+  run('/api/ranks/check', rankPayload({ only_failed: true }), '补查出错词…');
+};
+
+$('run-ranks-view').onclick = async () => {
+  showErr('');
+  const d = await fetch('/api/ranks/overview?domain=' + encodeURIComponent($('r-domain').value)).then(r => r.json());
+  if (d.error) return showErr(d.error);
+  if (!d.rows.length) return showErr('这个域名还没有任何检查记录。');
+  $('outbox').hidden = false;
+  $('outtitle').textContent = `最近一轮 —— ${d.domain}`;
+  $('log').classList.remove('show');
+  render({ count: d.rows.length, columns: ['关键词', '排名', '上轮', '变化', 'URL', '轮次'],
+           preview: d.rows.slice(0, 300), csv: null, truncated: d.rows.length > 300,
+           stats: { 轮次: (d.cost || {}).run_date, 上轮花费: '$' + ((d.cost || {}).cost || 0), 待补查: d.failed } });
+};
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
 
 /* ---------------- 启动 ---------------- */
@@ -408,6 +489,7 @@ $('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
   T.v = new Targeting('v', opts);
   T.s = new Targeting('s', opts);
   loadLib();
+  loadProjects(opts);
   const init = (d.geo || 'US').toUpperCase();
   [T.i, T.v, T.s].forEach(t => {
     t.add(init);

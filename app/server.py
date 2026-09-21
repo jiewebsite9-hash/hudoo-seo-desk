@@ -101,6 +101,28 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(data)
 
+        if p == "/api/ranks/projects":
+            from app.modules.ranks import tracker
+            return self._json({"projects": tracker.projects(),
+                               "unit": {"standard": tracker.DataForSeo.unit_price(3, "standard"),
+                                        "live": tracker.DataForSeo.unit_price(3, "live")}})
+
+        if p == "/api/ranks/overview":
+            from app.modules.ranks import tracker
+            d = (q.get("domain") or [""])[0]
+            if not d:
+                return self._json({"error": "要指定域名"}, 400)
+            return self._json(tracker.overview(d))
+
+        if p == "/api/ranks/history":
+            from app.modules.ranks import storage, tracker
+            kw = (q.get("keyword") or [""])[0]
+            d = tracker.norm_host((q.get("domain") or [""])[0])
+            conn = storage.connect()
+            rows = storage.history(conn, kw, d)
+            conn.close()
+            return self._json({"keyword": kw, "domain": d, "rows": rows})
+
         if p == "/api/lists":
             from app.modules.keywords import learn
             name = (q.get("load") or [""])[0]
@@ -187,6 +209,24 @@ class Handler(BaseHTTPRequestHandler):
                 return _finish(j, rows, "ideas", bool(b.get("usd")), b.get("usd_rate"))
 
             return self._json({"job": jobs.start("拓词", run).id})
+
+        if p == "/api/ranks/check":
+            from app.modules.ranks import tracker
+
+            def run(j):
+                rows, stats = tracker.check(
+                    domain=b.get("domain") or "",
+                    keywords=gkp.parse_keyword_text(b.get("keywords")),
+                    gl=b.get("gl"), hl=b.get("hl"), device=b.get("device"),
+                    depth=int(b.get("depth") or 3),
+                    mode=b.get("mode") or "standard",
+                    only_failed=bool(b.get("only_failed")), job=j)
+                return {"count": len(rows),
+                        "columns": ["关键词", "排名", "上轮", "变化", "URL", "状态"],
+                        "preview": rows[:300], "csv": None,
+                        "truncated": len(rows) > 300, "stats": stats}
+
+            return self._json({"job": jobs.start("排名检查", run).id})
 
         if p == "/api/keywords/learn":
             from app.modules.keywords import learn
