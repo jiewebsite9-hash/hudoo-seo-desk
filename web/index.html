@@ -203,7 +203,21 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
         <div><label>计费模式</label><select id="r-mode"><option value="standard">队列（省 70%）</option><option value="live">实时（贵且慢）</option></select></div>
         <div style="flex:1.6"><label>预估花费</label><div id="r-cost" style="padding-top:8px;font-weight:600">—</div></div>
       </div>
+      <div class="row" style="align-items:center;margin-bottom:14px">
+        <div style="flex:3"><label>飞书词库链接（留空则用项目配置里的）</label>
+        <input id="r-feishu" placeholder="https://xxx.feishu.cn/base/xxx?table=xxx"></div>
+        <div><label>排名列名（留空取「当月N月排名」）</label><input id="r-field" placeholder="9月排名"></div>
+      </div>
+      <div class="row" style="margin-bottom:14px">
+        <div style="flex:0 0 auto"><label>查完顺带</label>
+          <label style="display:flex;gap:14px;color:var(--ink);white-space:nowrap;padding-top:7px">
+            <span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="r-wb" style="width:auto">写回飞书排名列</span>
+            <span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="r-push" style="width:auto">推送简报</span>
+          </label></div>
+      </div>
       <button class="go" id="run-ranks">开始检查</button>
+      <button class="ghost" id="run-sync" style="margin-left:8px">⬇ 同步飞书词库</button>
+      <button class="ghost" id="run-wb" style="margin-left:8px">📤 写回排名列</button>
       <button class="ghost" id="run-ranks-failed" style="margin-left:8px">只补查出错词</button>
       <button class="ghost" id="run-ranks-view" style="margin-left:8px">看最近一轮</button>
       <p class="hint" style="margin:12px 0 0">⚠ 域名写法是这里最容易翻车的地方。写成 <code>example.com/</code> 或带 <code>https://</code> 会让匹配永远落空、把整个项目记成「一个词都没排名」，<b>而且不报错</b>。程序会自动归一化并在日志里提示。</p>

@@ -434,6 +434,8 @@ async function loadProjects(opts) {
     $('r-hl').value = p.hl || 'en';
     $('r-dev').value = p.device || 'desktop';
     $('r-depth').value = String(p.depth || 3);
+    $('r-feishu').value = p.feishu_url || '';
+    $('r-field').value = p.feishu_rank_field || '';
     rankCost();
   };
   ['r-kw', 'r-depth', 'r-mode'].forEach(id => {
@@ -450,6 +452,7 @@ function rankPayload(extra) {
     gl: $('r-gl').value, hl: $('r-hl').value,
     device: $('r-dev').value, depth: +$('r-depth').value || 3,
     mode: $('r-mode').value,
+    writeback: $('r-wb').checked, push: $('r-push').checked,
   }, extra || {});
 }
 
@@ -464,6 +467,21 @@ $('run-ranks-failed').onclick = () => {
   run('/api/ranks/check', rankPayload({ only_failed: true }), '补查出错词…');
 };
 
+
+$('run-sync').onclick = () => {
+  afterJob = (s) => {                        // 同步完把词填进输入框
+    const kws = (s.result || {}).keywords;
+    if (kws && kws.length) { $('r-kw').value = kws.join(String.fromCharCode(10)); rankCost(); }
+  };
+  run('/api/ranks/sync', { domain: $('r-domain').value, url: $('r-feishu').value },
+      '同步飞书词库…');
+};
+
+$('run-wb').onclick = () => {
+  if (!confirm('会把最近一轮的排名写进飞书表的排名列，覆盖原值。继续吗？')) return;
+  run('/api/ranks/writeback', { domain: $('r-domain').value,
+      url: $('r-feishu').value, field: $('r-field').value }, '写回飞书…');
+};
 $('run-ranks-view').onclick = async () => {
   showErr('');
   const d = await fetch('/api/ranks/overview?domain=' + encodeURIComponent($('r-domain').value)).then(r => r.json());

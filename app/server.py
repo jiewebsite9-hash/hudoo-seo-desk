@@ -210,6 +210,35 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("拓词", run).id})
 
+        if p == "/api/ranks/sync":
+            from app.modules.ranks import tracker
+
+            def run(j):
+                r = tracker.sync_keywords(domain=b.get("domain"), url=b.get("url"), job=j)
+                return {"count": len(r["keywords"]), "columns": ["关键词"],
+                        "preview": [{"关键词": k} for k in r["keywords"][:300]],
+                        "csv": None, "truncated": len(r["keywords"]) > 300,
+                        "keywords": r["keywords"], "resolved_url": r["resolved_url"],
+                        "stats": {"飞书行数": r["rows"], "拉到词数": len(r["keywords"]),
+                                  "未标Y被过滤": r["skipped"]}}
+
+            return self._json({"job": jobs.start("同步飞书词库", run).id})
+
+        if p == "/api/ranks/writeback":
+            from app.modules.ranks import tracker
+
+            def run(j):
+                r = tracker.writeback(b.get("domain") or "", field=b.get("field"),
+                                      url=b.get("url"), job=j)
+                return {"count": r["written"], "columns": [], "preview": [],
+                        "csv": None, "stats": {"写入行数": r["written"],
+                                               "字段": r["field"],
+                                               "列类型": r["field_type"],
+                                               "表里无数据行": r["no_data"],
+                                               "轮次": r["run_date"]}}
+
+            return self._json({"job": jobs.start("写回飞书排名列", run).id})
+
         if p == "/api/ranks/check":
             from app.modules.ranks import tracker
 
@@ -221,6 +250,19 @@ class Handler(BaseHTTPRequestHandler):
                     depth=int(b.get("depth") or 3),
                     mode=b.get("mode") or "standard",
                     only_failed=bool(b.get("only_failed")), job=j)
+                if b.get("writeback"):
+                    try:
+                        wb = tracker.writeback(b.get("domain") or "", job=j)
+                        stats["写回"] = "%d 行 -> %s" % (wb["written"], wb["field"])
+                    except Exception as e:
+                        j.log("[写回失败] %s(排名数据已存好,可以单独重试写回)" % str(e)[:120])
+                if b.get("push"):
+                    try:
+                        from app.modules.ranks import feishu
+                        feishu.push(tracker.report_text(b.get("domain") or "", stats, rows),
+                                    log=j.log)
+                    except Exception as e:
+                        j.log("[推送失败] %s" % str(e)[:120])
                 return {"count": len(rows),
                         "columns": ["关键词", "排名", "上轮", "变化", "URL", "状态"],
                         "preview": rows[:300], "csv": None,

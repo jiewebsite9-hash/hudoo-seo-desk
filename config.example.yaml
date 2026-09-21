@@ -62,6 +62,9 @@ rank_projects:
     keywords:
       - "example keyword one"
       - "example keyword two"
+    # 飞书词库(可选):配了就能一键同步词库、把排名写回表里
+    feishu_url: ""             # 多维表格分享链接,形如 https://xxx.feishu.cn/base/<token>?table=<id>
+    feishu_rank_field: ""      # 排名列名;留空取「当月N月排名」,各家表列名不一致时在这里指定
 
 # ---------- 排名监控参数 ----------
 ranks:

@@ -60,7 +60,9 @@ def projects():
                     "gl": p.get("gl") or config.get("defaults.geo", "US"),
                     "hl": p.get("hl") or config.get("defaults.lang", "en"),
                     "device": p.get("device") or "desktop",
-                    "depth": int(p.get("depth") or 3)})
+                    "depth": int(p.get("depth") or 3),
+                    "feishu_url": p.get("feishu_url") or "",
+                    "feishu_rank_field": p.get("feishu_rank_field") or ""})
     return out
 
 
@@ -192,3 +194,71 @@ def overview(domain):
     out.sort(key=lambda r: (r["排名"] == "", r["排名"] or 9999))
     return {"rows": out, "cost": cost, "run_dates": dates,
             "failed": len(failed), "domain": host}
+
+
+# ---------------------------------------------------------------- 飞书闭环
+
+def sync_keywords(domain=None, url=None, job=None):
+    """从飞书词库拉词。url 缺省时用项目配置里的 feishu_url。"""
+    from . import feishu
+    log = job.log if job else (lambda m: None)
+    proj = find_project(domain) if domain else None
+    url = (url or (proj or {}).get("feishu_url") or "").strip()
+    if not url:
+        raise RankError("没有飞书词库链接 —— 在项目里配 feishu_url,或直接把链接填进来。")
+    return feishu.sync(url, log=log)
+
+
+def latest_positions(domain):
+    """最近一轮每个词的名次(只认成功记录)。{关键词: 名次或 None}"""
+    host = norm_host(domain)
+    conn = storage.connect()
+    dates = storage.run_dates(conn, host, 1)
+    if not dates:
+        conn.close()
+        raise RankError("这个域名还没有任何检查记录,先跑一轮再写回。")
+    run_date = dates[0]
+    rows = conn.execute(
+        "SELECT keyword, position FROM checks c1 WHERE domain=? AND run_date=?"
+        " AND status='ok' AND id=(SELECT MAX(id) FROM checks c2"
+        " WHERE c2.keyword=c1.keyword AND c2.domain=c1.domain"
+        " AND c2.run_date=c1.run_date AND c2.status='ok')",
+        (host, run_date)).fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}, run_date
+
+
+def writeback(domain, field=None, url=None, job=None):
+    """把最近一轮的排名写回飞书排名列。"""
+    from . import feishu
+    log = job.log if job else (lambda m: None)
+    proj = find_project(domain)
+    url = (url or (proj or {}).get("feishu_url") or "").strip()
+    if not url:
+        raise RankError("没有飞书词库链接 —— 在项目里配 feishu_url。")
+    field = field or (proj or {}).get("feishu_rank_field") or None
+    pos, run_date = latest_positions(domain)
+    log("最近一轮 %s,共 %d 个词有成功记录" % (run_date, len(pos)))
+    res = feishu.writeback(url, pos, field_name=field, log=log)
+    res["run_date"] = run_date
+    return res
+
+
+def report_text(domain, stats, rows, top=8):
+    """推送用的纯文本简报。"""
+    lines = ["【排名检查】%s  %s" % (stats.get("域名"), stats.get("轮次")),
+             "共 %s 词,成功 %s,有排名 %s,前 10 名 %s,花费 $%s"
+             % (stats.get("总词数"), stats.get("成功"), stats.get("有排名"),
+                stats.get("前10名"), stats.get("花费"))]
+    ranked = [r for r in rows if r.get("排名")][:top]
+    if ranked:
+        lines.append("")
+        for r in ranked:
+            lines.append("  #%s  %s  %s" % (r["排名"], r["关键词"], r.get("变化") or ""))
+    movers = [r for r in rows if r.get("变化") and r["变化"] not in ("—", "")]
+    up = [r for r in movers if r["变化"].startswith("↑")]
+    down = [r for r in movers if r["变化"].startswith("↓")]
+    if up or down:
+        lines.append("")
+        lines.append("上升 %d 个,下降 %d 个" % (len(up), len(down)))
+    return "\n".join(lines)
