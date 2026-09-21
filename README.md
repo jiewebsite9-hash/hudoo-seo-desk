@@ -10,7 +10,7 @@
 | **排名监控** | DataForSEO 拉 Google 自然结果，SQLite 留底，队列模式约 $0.0015/词 | ✅ 可用 |
 | **SOP 总表** | 按 20 列总表格式出数，四表 xlsx 一次交付 | ✅ 可用 |
 | **学清单** | 从做过的项目统计学剔除清单，零 AI | ✅ 可用 |
-| Skill 执行引擎 | SEO 审计 / 内容 / GEO 流程 | 🚧 规划中 |
+| Skill 执行引擎 | SEO 审计 / 内容 / GEO 流程 | 🚧 规划中（LLM 调用层已就绪） |
 
 ## 为什么不是直接用关键词规划师网页版
 
@@ -85,6 +85,29 @@ Windows 上也可以直接双击 `start.bat`。
 CSV 为 UTF-8-SIG，Excel 双击直接认中文。
 
 > **关于「高价值」列的一个已知局限**：默认阈值按通用外贸品类标定。B2B 工业/机械类关键词的页首出价普遍高出一个数量级，会把整列打成「极高」而失去区分度。这类项目请按自己的行业重新标定 `app/modules/keywords/gkp.py` 里的 `VALUE_LINE`，或直接改看「可行性评分」。
+
+## LLM 调用层
+
+skill 引擎要调大模型。这里**刻意不绑死任何一家**，配置里换 provider 即可：
+
+```yaml
+llm:
+  provider: "deepseek"       # deepseek | anthropic | openai_compatible
+  model: "deepseek-flash"
+  api_key: ""
+  per_skill: {}              # 可按 skill 覆盖：审计走便宜的，写稿走强的
+  pricing: {}                # 价格表也在配置里，涨价降价不用改代码
+```
+
+不绑死的三个理由：
+
+1. **模型名变动很快。** DeepSeek 半年改了三次——`deepseek-chat` / `deepseek-reasoner` 于 2026-07-24 退役，`deepseek-v4-flash` 于 2026-09-10 退役，现在是 `deepseek-flash` / `deepseek-v4-pro`。写死在代码里迟早要疼。
+2. **不同 skill 该配不同模型。** 审计类是规则性检查，便宜模型完全够用；内容创作可能想要更强的。
+3. 两边本来就是同一个接口形状，抽象成本几乎为零。
+
+DeepSeek 兼容 OpenAI SDK，填 key 就能用。它的上下文缓存是**自动的**——把固定不变的内容（skill 正文、口径表）放 system、变动的放 user，命中率自然就高，命中价约为未命中的 1/31。
+
+设置页有「自检 LLM 连接」按钮，会报回模型、耗时、token 用量和本次花费。
 
 ## 关于 skills 目录
 

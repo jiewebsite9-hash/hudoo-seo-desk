@@ -515,7 +515,8 @@ $('run-ranks-view').onclick = async () => {
            preview: d.rows.slice(0, 300), csv: null, truncated: d.rows.length > 300,
            stats: { 轮次: (d.cost || {}).run_date, 上轮花费: '$' + ((d.cost || {}).cost || 0), 待补查: d.failed } });
 };
-$('run-check').onclick = () => run('/api/keywords/check', {}, '自检中…');
+$('run-check').onclick = () => run('/api/keywords/check', {}, '自检 Google Ads…');
+$('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
 
 /* ---------------- 启动 ---------------- */
 (async () => {

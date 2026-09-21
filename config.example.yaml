@@ -48,6 +48,28 @@ defaults:
   min_volume: 10           # 拓词时过滤掉月均搜索量低于此值的词
   usd_rate: 6.9            # 出价换算成 USD 时用的汇率。账号币种不是 USD 时,出价列按此折算
 
+# ---------- LLM(skill 引擎用)----------
+# 刻意不绑死一家:模型名变动很快(DeepSeek 半年改了三次),
+# 不同 skill 也该配不同模型。价格表也放这里,涨价降价不用改代码。
+llm:
+  provider: "deepseek"       # deepseek | anthropic | openai_compatible
+  model: "deepseek-flash"    # deepseek-flash(便宜快) / deepseek-v4-pro(更强)
+                             # ⚠ deepseek-chat、deepseek-reasoner、deepseek-v4-flash 均已退役
+  api_key: ""                # (LLM_API_KEY) platform.deepseek.com 自取
+  base_url: ""               # 留空用 provider 默认;自建/中转端点填这里
+  effort: ""                 # 留空即默认;deepseek 支持 low/high/max
+  max_tokens: 16000
+  timeout: 600
+
+  # 按 skill 覆盖(可选):审计类规则性强、便宜模型够用;写稿可以上更强的
+  per_skill: {}
+  #  seo-content-writer:
+  #    model: "deepseek-v4-pro"
+
+  # 价格($/1M token),只用于估算花费
+  pricing: {}
+  #  deepseek-flash: {in: 0.30, out: 1.20, cache_in: 0.007}
+
 # ---------- 排名监控项目 ----------
 # 客户项目写在这里(config.local.yaml),**公开仓库不带任何客户信息**。
 # domain 务必写裸域名:写成 example.com/ 或 https://example.com/ 会让名次

@@ -210,6 +210,22 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("拓词", run).id})
 
+        if p == "/api/llm/check":
+            from app.modules.llm import client as llm
+
+            def run(j):
+                r = llm.check(log=j.log)
+                j.log("回复:%s" % r["reply"])
+                return {"count": 0, "preview": [], "csv": None,
+                        "stats": {"provider": r["provider"], "模型": r["model"],
+                                  "耗时": "%ss" % r["seconds"],
+                                  "输入token": r["usage"].get("in"),
+                                  "缓存命中": r["usage"].get("cache_in"),
+                                  "输出token": r["usage"].get("out"),
+                                  "本次花费": ("$%s" % r["cost"]) if r["cost"] is not None else "—"}}
+
+            return self._json({"job": jobs.start("LLM 连通性自检", run).id})
+
         if p == "/api/ranks/sync":
             from app.modules.ranks import tracker
 

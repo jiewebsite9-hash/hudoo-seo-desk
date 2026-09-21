@@ -284,7 +284,11 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <h2>连接状态</h2>
       <p class="hint">凭据只存在本机的 <code>config.local.yaml</code>，这个文件在 .gitignore 里，不会进仓库。界面只显示配没配，不显示内容。</p>
       <div class="kv" id="cfgkv"></div>
-      <div style="margin-top:14px"><button class="ghost" id="run-check">自检 Google Ads 连接</button></div>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost" id="run-check">自检 Google Ads 连接</button>
+        <button class="ghost" id="run-llm">自检 LLM 连接</button>
+      </div>
+      <p class="hint" style="margin:12px 0 0">LLM 用于 skill 引擎，<b>刻意没绑死一家</b>：模型名变动很快（DeepSeek 半年改了三次），不同 skill 也该配不同模型。在 <code>llm</code> 段选 provider 和 model 即可；DeepSeek 兼容 OpenAI SDK，填 key 就能用。</p>
     </div>
     <div class="card">
       <h2>首次配置</h2>

@@ -25,6 +25,7 @@ ENV_MAP = {
     "google_ads.refresh_token": "GKP_REFRESH_TOKEN",
     "google_ads.login_customer_id": "GKP_LOGIN_CUSTOMER_ID",
     "anthropic.api_key": "ANTHROPIC_API_KEY",
+    "llm.api_key": "LLM_API_KEY",
     "dataforseo.login": "DATAFORSEO_LOGIN",
     "dataforseo.password": "DATAFORSEO_PASSWORD",
     "feishu.app_id": "FEISHU_APP_ID",
@@ -136,7 +137,7 @@ def status():
             "keywords": all(creds.get("google_ads." + k) for k in
                             ("developer_token", "client_id", "client_secret",
                              "refresh_token", "login_customer_id")),
-            "skills": creds.get("anthropic.api_key", False),
+            "skills": bool(creds.get("llm.api_key") or creds.get("anthropic.api_key")),
             "ranks": creds.get("dataforseo.login") and creds.get("dataforseo.password"),
         },
         "skills_dir": str(sd),
