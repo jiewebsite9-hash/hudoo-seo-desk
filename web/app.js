@@ -334,14 +334,35 @@ class Targeting {
 let T = {};
 
 /* ---------------- 按钮 ---------------- */
-$('run-ideas').onclick = () => run('/api/keywords/ideas', {
-  seeds: $('seeds').value,
-  url: $('url').value,
-  geos: T.i.value,
-  lang: $('i-lang').value,
-  min_volume: +$('i-min').value || 0,
-  usd: $('i-usd').checked,
-}, '拓词中…');
+/* 拓词方式三选一。以前种子词和网址两个框并列，标签写「填了网址就不用种子词」，
+   但后端其实是两个都跑 —— 说明和行为对不上，所以改成显式三选一。 */
+let ideaMode = 'seed';
+document.querySelectorAll('#i-mode button').forEach(b => {
+  b.onclick = () => {
+    ideaMode = b.dataset.m;
+    document.querySelectorAll('#i-mode button').forEach(x => x.classList.toggle('on', x === b));
+    ['seed', 'site', 'page'].forEach(m => { $('i-box-' + m).hidden = (m !== ideaMode); });
+  };
+});
+
+$('run-ideas').onclick = () => {
+  const payload = {
+    geos: T.i.value,
+    lang: $('i-lang').value,
+    min_volume: +$('i-min').value || 0,
+    usd: $('i-usd').checked,
+  };
+  if (ideaMode === 'seed') {
+    payload.seeds = $('seeds').value;
+    if (!payload.seeds.trim()) return showErr('种子词是空的。');
+  } else {
+    const el = ideaMode === 'site' ? $('i-url-site') : $('i-url-page');
+    payload.url = el.value.trim();
+    payload.site = (ideaMode === 'site');      // 整站 vs 单页 —— 以前这个参数前端从来没传过
+    if (!payload.url) return showErr('网址是空的。');
+  }
+  run('/api/keywords/ideas', payload, '拓词中…');
+};
 
 $('run-volume').onclick = () => run('/api/keywords/volume', {
   keywords: $('words').value,

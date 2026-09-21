@@ -44,6 +44,11 @@ textarea{min-height:110px;resize:vertical;font-family:var(--mono);font-size:13px
 .chip i:hover{opacity:1;background:#d3e0fb}
 .chips:empty::after{content:"还没选地区";color:var(--err);font-size:11.5px}
 .note{color:var(--dim);font-weight:400}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:#fff;border:0;border-right:1px solid var(--line);padding:8px 18px;
+  font:inherit;color:var(--dim);cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);color:#fff;font-weight:600}
 .up{float:right;font-weight:400;color:var(--accent);cursor:pointer;user-select:none}
 .up:hover{text-decoration:underline}
 .up.busy{color:var(--dim);cursor:progress}
@@ -103,12 +108,34 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
   <section id="tab-ideas">
     <div class="card">
       <h2>拓词</h2>
-      <p class="hint">对应关键词规划师的「发现新关键字」。种子词一行一个，超过 20 个会自动分批去重。返回的每个词自带搜索量、竞争度和页首出价，不用再去别处补数。</p>
-      <label>种子词（一行一个）</label>
-      <textarea id="seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea>
-      <label style="margin-top:12px">或按页面拓词（填了这个就不用种子词）</label>
-      <input id="url" placeholder="https://competitor.com/products/">
-      <div class="row" style="margin-top:12px">
+      <p class="hint"><b>这一页用来快速探一个来源有哪些词</b>，出的是原始候选池。要正式出交付词表（多来源合并、判意图/优先级/金矿、剔词、出工作簿），用「<b>SOP 总表</b>」那一页——它把这里的三种方式一次跑完。</p>
+
+      <label>从哪拓</label>
+      <div class="seg" id="i-mode">
+        <button class="on" data-m="seed">种子词</button>
+        <button data-m="site">竞品整站</button>
+        <button data-m="page">单个页面</button>
+      </div>
+
+      <div id="i-box-seed" style="margin-top:14px">
+        <label>种子词（一行一个）</label>
+        <textarea id="seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea>
+        <p class="hint" style="margin:6px 0 0">每个种子最多返回几百个词。超过 20 个会自动分批再去重，填多少都行。</p>
+      </div>
+
+      <div id="i-box-site" hidden style="margin-top:14px">
+        <label>竞品网址</label>
+        <input id="i-url-site" placeholder="https://competitor.com">
+        <p class="hint" style="margin:6px 0 0">扒<b>整个站</b>，拿到竞品在做的全部词。填首页即可，不用具体到栏目。</p>
+      </div>
+
+      <div id="i-box-page" hidden style="margin-top:14px">
+        <label>页面网址</label>
+        <input id="i-url-page" placeholder="https://competitor.com/products/conveyor-roller/">
+        <p class="hint" style="margin:6px 0 0">只看<b>这一个页面</b>的主题。适合针对某个栏目页或产品页找对标词。</p>
+      </div>
+
+      <div class="row" style="margin-top:14px">
         <div style="flex:2.2">
           <label>地区（必填，可加多个）</label>
           <select id="i-geo"></select>
@@ -122,6 +149,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
         <div style="flex:0 0 auto;min-width:0"><label>出价单位</label><label style="display:flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap;padding-top:7px"><input type="checkbox" id="i-usd" style="width:auto">换算成 USD</label></div>
       </div>
       <button class="go" id="run-ideas">开始拓词</button>
+      <p class="hint" style="margin:12px 0 0">出来的 CSV 可以直接喂给「补搜索量」补数，或粘进「SOP 总表」的种子词框继续跑完整流程。</p>
     </div>
   </section>
 
