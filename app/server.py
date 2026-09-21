@@ -545,6 +545,10 @@ def _finish(job, rows, prefix, to_usd=False, rate=None):
 
 
 def serve():
+    # 首次运行:在用户自己的目录里生成一份配置模板(不带任何凭据)
+    if config.ensure_local_config():
+        print("首次运行,已生成配置文件:%s" % config.LOCAL)
+        print("填好里面的凭据再用,界面「设置」页有说明。\n")
     host = config.get("server.host", "127.0.0.1")
     port = int(config.get("server.port", 8790))
     httpd = ThreadingHTTPServer((host, port), Handler)

@@ -81,7 +81,7 @@ def make_engine(gl="us", hl="en", device="desktop", depth=3, mode="standard", lo
         batch=int(config.get("ranks.batch_size", 100)),
         poll_sec=int(config.get("ranks.poll_sec", 15)),
         timeout_sec=int(config.get("ranks.timeout_sec", 1800)),
-        journal=config.ROOT / "data" / "rank_pending.json",
+        journal=config.data_dir() / "rank_pending.json",
         log=log)
 
 

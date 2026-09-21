@@ -122,9 +122,7 @@ def suggest_core(keep_words, patterns, top=12):
 
 def _lib_dir():
     from app import config
-    d = config.ROOT / "data" / "lists"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return config.data_dir("lists")
 
 
 def save_list(name, rows, metrics, core, note=""):

@@ -25,9 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_checks_domain ON checks(domain, run_date);
 
 def db_path():
     from app import config
-    p = config.ROOT / "data" / "ranks.db"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    return config.data_dir() / "ranks.db"
 
 
 def connect():

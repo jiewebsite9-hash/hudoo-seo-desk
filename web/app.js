@@ -41,8 +41,11 @@ async function loadStatus() {
       `<div>${CRED_CN[k]}</div><div>${s.credentials[k]
         ? '<span style="color:var(--ok)">已配置</span>'
         : '<span style="color:var(--dim)">未配置</span>'}</div>`).join('') +
-    `<div>配置文件</div><div>${s.config_file || '<span style="color:var(--err)">还没有 config.local.yaml</span>'}</div>` +
-    `<div>skills 目录</div><div>${s.skills_dir}</div>`;
+    `<div>配置文件</div><div>${s.config_file || '<span style="color:var(--err)">还没生成</span>'}`
+      + `${s.portable ? ' <span class="note">（便携模式：配置和数据都在程序目录）</span>' : ''}</div>` +
+    `<div>数据目录</div><div>${s.home}<span class="note">　SQLite / 清单库 / 任务记录都在这</span></div>` +
+    `<div>导出目录</div><div>${s.out_dir}</div>` +
+    `<div>skills 目录</div><div>${s.skills_dir}${(s.skills_found||[]).length ? '' : ' <span style="color:var(--warn)">（这个目录下没找到 skill）</span>'}</div>`;
   const d = s.defaults || {};
   if (d.min_volume != null) $('i-min').value = d.min_volume;
   if (d.usd_rate != null) { $('s-rate').value = d.usd_rate; }

@@ -7,15 +7,43 @@
 import os
 from pathlib import Path
 
-# 打包成 exe 后 __file__ 在临时解包目录,配置要按 exe 所在目录找
+# 打包成 exe 后 __file__ 在临时解包目录,程序目录要按 exe 所在目录找
 import sys
 if getattr(sys, "frozen", False):
     ROOT = Path(sys.executable).resolve().parent
 else:
     ROOT = Path(__file__).resolve().parent.parent
 
-LOCAL = ROOT / "config.local.yaml"
-EXAMPLE = ROOT / "config.example.yaml"
+
+def _home():
+    """**可写数据放哪。** 程序目录只读,配置/数据/导出全走这里。
+
+    这个工具是发给每个人装在自己机器上跑的,所以:
+      · 配置不能躺在程序目录 —— 更新程序时替换文件夹会把人家的凭据冲掉
+      · 一台机器多个用户要各用各的
+      · 导出和数据库同理
+
+    解析顺序:
+      1. 环境变量 HUDOO_SEO_DESK_HOME —— 想放哪放哪,也方便做绿色版
+      2. 程序目录下已经有 config.local.yaml -> **便携模式**,就地用
+         (从仓库直接跑、或者有意做成便携版的情形)
+      3. %APPDATA%\\HudooSeoDesk (Windows) / ~/.config/hudoo-seo-desk (其他)
+    """
+    env = os.environ.get("HUDOO_SEO_DESK_HOME")
+    if env:
+        return Path(env).expanduser()
+    if (ROOT / "config.local.yaml").exists():
+        return ROOT
+    base = os.environ.get("APPDATA")
+    if base:
+        return Path(base) / "HudooSeoDesk"
+    return Path.home() / ".config" / "hudoo-seo-desk"
+
+
+HOME = _home()
+LOCAL = HOME / "config.local.yaml"
+EXAMPLE = ROOT / "config.example.yaml"     # 模板跟程序走,只读
+PORTABLE = HOME == ROOT
 
 # 配置路径 -> 环境变量名
 ENV_MAP = {
@@ -100,20 +128,54 @@ def google_ads_dict():
     }
 
 
+def _resolve(p, base):
+    """配置里的路径:绝对路径照用,相对路径相对 base。"""
+    q = Path(str(p)).expanduser()
+    return q if q.is_absolute() else (base / q)
+
+
+def data_dir(*parts):
+    """可写数据(SQLite、清单库、任务 journal)。跟着用户走,不在程序目录。"""
+    d = HOME.joinpath("data", *parts)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def skills_dir():
+    """skill 内容包在哪。
+
+    **默认值不能指向 ~/.claude/skills** —— 那是装了 Claude Code 才有的目录,
+    团队成员机器上没有。优先找用户自己的数据目录,再找程序目录,
+    最后才回落到 .claude(装了 Claude Code 的人受益,没装的人也不会报怪错)。
+    """
     p = get("paths.skills_dir")
     if p:
-        return Path(p)
-    local = ROOT / "skills"
-    if local.exists() and any(f.is_dir() for f in local.iterdir()):
-        return local
-    return Path.home() / ".claude" / "skills"
+        return _resolve(p, HOME)
+    for cand in (HOME / "skills", ROOT / "skills"):
+        if cand.exists() and any(f.is_dir() for f in cand.iterdir()):
+            return cand
+    fallback = Path.home() / ".claude" / "skills"
+    if fallback.exists():
+        return fallback
+    return HOME / "skills"
 
 
 def out_dir():
-    d = ROOT / str(get("paths.out_dir", "out"))
+    d = _resolve(get("paths.out_dir", "out"), HOME)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def ensure_local_config():
+    """首次运行:把模板复制成用户自己的 config.local.yaml。
+
+    只复制模板,不带任何凭据 —— 每个人填自己的。
+    """
+    if LOCAL.exists() or not EXAMPLE.exists():
+        return False
+    LOCAL.parent.mkdir(parents=True, exist_ok=True)
+    LOCAL.write_text(EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    return True
 
 
 def status():
@@ -131,6 +193,9 @@ def status():
     sd = skills_dir()
     return {
         "config_file": str(LOCAL) if LOCAL.exists() else None,
+        "home": str(HOME),
+        "portable": PORTABLE,
+        "out_dir": str(out_dir()),
         "has_local_config": LOCAL.exists(),
         "credentials": creds,
         "ready": {
