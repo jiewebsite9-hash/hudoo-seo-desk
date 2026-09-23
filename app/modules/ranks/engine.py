@@ -265,7 +265,9 @@ class DataForSeo:
 
         # 3) 轮询取回
         done = 0
-        deadline = time.time() + self.timeout
+        t0 = time.time()
+        deadline = t0 + self.timeout
+        last_beat = t0
         while pending and time.time() < deadline:
             ready = set()
             try:
@@ -304,6 +306,13 @@ class DataForSeo:
                 if progress:
                     progress(done, total, kw, out[kw]["status"])
             self._save_journal(pending)
+            # 等队列的时候必须出声:不然从「已下单」到第一批回来的几分钟里一行日志都没有,
+            # 界面上就是死掉的样子。每 30 秒报一次已回多少、等了多久。
+            now = time.time()
+            if pending and now - last_beat >= 30:
+                self.log("队列中:已回 %d/%d,已等 %d 秒(队列模式通常 3–10 分钟,上限 %d 分钟)"
+                         % (done, total, int(now - t0), self.timeout // 60))
+                last_beat = now
             if pending:
                 time.sleep(self.poll)
 

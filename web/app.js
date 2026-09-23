@@ -89,6 +89,7 @@ async function run(url, payload, title) {
   btns.forEach(b => b.disabled = true);
   showOutbox();
   $('outtitle').textContent = title;
+  runTitle = title; runStart = Date.now();
   $('log').textContent = '';
   $('log').classList.add('show');
   $('meta').hidden = true;
@@ -110,6 +111,7 @@ async function run(url, payload, title) {
   }
 }
 
+let runTitle = '', runStart = 0;
 function poll(id, since, btns) {
   clearTimeout(poller);
   poller = setTimeout(async () => {
@@ -126,7 +128,12 @@ function poll(id, since, btns) {
       if (stick) el.scrollTop = el.scrollHeight;
     }
 
-    if (s.status === 'running') return poll(id, s.total_lines, btns);
+    if (s.status === 'running') {
+      // 标题栏走秒:后端安静的时候(排名在等队列)也能看出作业活着
+      const sec = Math.floor((Date.now() - runStart) / 1000);
+      $('outtitle').textContent = runTitle + '（已 ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + '）';
+      return poll(id, s.total_lines, btns);
+    }
 
     btns.forEach(b => b.disabled = false);
     $('outtitle').textContent = title(s);
@@ -617,17 +624,19 @@ function rankPayload(extra) {
 /* ---------------- DataForSEO 余额 ----------------
    余额是整个账号一个数,不分人 —— 所有人的程序看到的是同一个值。
    它答不了「谁花的」,只答「还剩多少」。接口本身免费,服务端缓存 60 秒。   */
-let BAL = null;
+let BAL = null, balRetried = false;
 async function loadBalance(force) {
   const el = $('r-bal'), set = $('set-bal');
   const d = await apiFetch('/api/ranks/balance' + (force ? '?force=1' : ''))
     .then(r => r.json()).catch(() => null);
   if (!d || d.error) {
-    BAL = null;
-    if (el) el.textContent = '查不到';
+    // 失败别把上次的值抹掉;排名作业在打 DataForSEO 的时候偶尔会超时,自动再试一次
+    if (el) el.textContent = BAL ? ('$' + BAL.balance.toFixed(2) + '　(刷新失败)') : '查不到';
     if (set) set.textContent = d && d.error ? ('DataForSEO 余额：' + d.error) : '';
+    if (!balRetried) { balRetried = true; setTimeout(() => loadBalance(true), 4000); }
     return;
   }
+  balRetried = false;
   BAL = d;
   // 低于 $5 标红:standard 单价下这大约只剩 3000 词
   if (el) {
