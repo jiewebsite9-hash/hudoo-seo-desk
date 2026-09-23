@@ -509,7 +509,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"job": jobs.start("学剔除清单", run).id})
 
         if p == "/api/keywords/sop":
-            from app.modules.keywords import sop
+            from app.modules.keywords import sop, derive, learn
             geos = [g for g in (b.get("geos") or []) if g]
 
             def run(j):
@@ -517,33 +517,104 @@ class Handler(BaseHTTPRequestHandler):
                 lang = b.get("lang") or "en"
                 minv = int(b.get("min_volume") or 0)
                 mixed = gkp.parse_keyword_text(b.get("mixed"))
-                header, rows, cut, stats = sop.build(
-                    seeds=gkp.parse_keyword_text(b.get("seeds")),
+                exclude = gkp.parse_keyword_text(b.get("exclude"))
+                col = sop.collect(
                     competitor_sites=gkp.parse_keyword_text(b.get("sites")),
+                    client_site=(b.get("client_site") or "").strip() or None,
                     customer_words=_lines(b.get("customer")),
-                    mixed_words=mixed,
-                    exclude_words=gkp.parse_keyword_text(b.get("exclude")),
-                    market=market, lang=lang, min_volume=minv,
-                    usd_rate=b.get("usd_rate") or None,
+                    market=market, lang=lang,
                     expand_customer=bool(b.get("expand_customer", True)), job=j)
-                if not rows:
-                    return {"count": 0, "preview": [], "csv": None}
-                csv_path = sop.save_csv(header, rows)
-                xlsx_path = sop.save_workbook(
-                    header, rows, cut, stats,
-                    {"market": market, "lang": lang, "min_volume": minv, "mixed": mixed})
-                j.log("已导出 -> %s(总表 CSV)" % csv_path.name)
-                j.log("已导出 -> %s(4 张表的工作簿,可直接导进飞书)" % xlsx_path.name)
-                # 预览用中文表头,把 {市场} 占位换成实际市场名
-                keymap = dict(zip(sop.COLUMNS, header))
-                preview = [{keymap[k]: v for k, v in r.items() if k in keymap}
-                           for r in rows[:200]]
-                clean = {k: v for k, v in stats.items() if not k.startswith("_")}
-                return {"count": len(rows), "columns": header, "preview": preview,
-                        "csv": csv_path.name, "xlsx": xlsx_path.name,
-                        "truncated": len(rows) > 200, "stats": clean}
+                met = sop.fetch(col, job=j)
 
-            return self._json({"job": jobs.start("生成 SOP 总表", run).id})
+                # ---- AI 筛词:在取数之后、打分之前 ----
+                # 样本按主市场月搜从高到低取前 300:量大的词代表候选池的主体,清单准不准看它们。
+                ai, soft, core = None, [], []
+                material = (b.get("material") or "").strip()
+                if b.get("auto_lists", True) and len(material) >= 30:
+                    ranked = sorted(col["pool"].values(), key=lambda w: -float(
+                        (met["local"].get(sop.gkey(w)) or {}).get("月均搜索量") or 0))
+                    ai = derive.derive(material, sample_words=ranked[:300],
+                                       extra=b.get("extra"), job=j)
+                    # AI 剔除模式一旦命中客户词,就是它泛化过头的铁证(实测把「不生产皮带轮」
+                    # 泛化成 *pulley*,连 conveyor pulley 都剔)。整条停用,界面上注明,人要用再勾回。
+                    cust_words = list(col["customer"].values())
+                    conflicts = []
+                    for e in ai["exclude"]:
+                        hits = [w for w in cust_words if sop.make_mixed_matcher([e["pattern"]])(w)]
+                        if hits:
+                            e["use"] = False
+                            e["conflict"] = "命中客户词 " + " / ".join(hits[:3])
+                            conflicts.append("%s(%s)" % (e["pattern"], hits[0]))
+                    # 混杂模式只压 P1 不删词,不停用,但标出命中了哪些客户词 —— *steel* 一条
+                    # 盖住 5 个客户产品词,过宽与否让人一眼看出来
+                    for m in ai["mixed"]:
+                        hits = [w for w in cust_words if sop.make_mixed_matcher([m["pattern"]])(w)]
+                        if hits:
+                            m["cust_hits"] = hits
+                    if conflicts:
+                        msg = ("AI 有 %d 条剔除模式命中了客户自己给的词,说明泛化过头,已停用:%s"
+                               % (len(conflicts), "、".join(conflicts[:5])))
+                        ai.setdefault("warnings", []).append(msg)
+                        j.log("[当心] " + msg)
+                    exclude = exclude + [e["pattern"] for e in ai["exclude"] if e.get("hard") and e.get("use", True)]
+                    soft = [e["pattern"] for e in ai["exclude"] if not e.get("hard") and e.get("use", True)]
+                    mixed = mixed + [m["pattern"] for m in ai["mixed"]]
+                    core = list(ai["core"])
+                    strat = [x["keyword"] for x in ai["strategy"]]
+                    if strat:
+                        n = sop.add_words(col, met, strat, "AI策略词", job=j)
+                        j.log("AI 策略词 %d 个,其中 %d 个是池子里没有的,已补数据入池" % (len(strat), n))
+                    if (b.get("save_as") or "").strip():
+                        rows_, metrics_, core_, note_ = derive.to_list_payload(ai, b["save_as"], "")
+                        j.log("已存进清单库:%s" % learn.save_list(
+                            b["save_as"].strip(), rows_, metrics_, core_, note=note_ or "一键流水线生成"))
+                elif b.get("auto_lists", True):
+                    j.log("客户资料不足 30 字,跳过 AI 筛词 —— 只用手动清单")
+
+                header, rows, cut, stats = sop.assemble(
+                    col, met, mixed_words=mixed, exclude_words=exclude,
+                    soft_exclude=soft, core=core, min_volume=minv,
+                    usd_rate=b.get("usd_rate") or None, job=j)
+                # 缓存取数结果:改清单只重打分,不重新取数
+                j.cache = {"col": col, "met": met}
+                res = _sop_result(j, sop, header, rows, cut, stats,
+                                  {"market": market, "lang": lang, "min_volume": minv, "mixed": mixed})
+                res["lists_used"] = {"mixed": mixed, "exclude": exclude, "soft": soft, "core": core}
+                if ai:
+                    res["ai"] = {"exclude": ai["exclude"], "mixed": ai["mixed"],
+                                 "strategy": ai["strategy"], "core": ai["core"],
+                                 "warnings": ai.get("warnings") or [], "cost": ai.get("cost"),
+                                 "preview": (ai.get("preview") or {}).get("rows") or []}
+                return res
+
+            return self._json({"job": jobs.start("拓词 → AI 筛词 → 总表", run).id})
+
+        if p == "/api/keywords/rescore":
+            # 改清单重打分:用上一轮缓存的取数结果,不碰 GKP,秒出
+            from app.modules.keywords import sop
+            prev = jobs.get(b.get("job") or "")
+            cache = getattr(prev, "cache", None) if prev else None
+            if not cache:
+                return self._json({"error": "上一轮的取数结果已经不在了(程序重启过或作业被清理),请重新生成。"}, 400)
+
+            def run(j):
+                minv = int(b.get("min_volume") or 0)
+                mixed = gkp.parse_keyword_text(b.get("mixed"))
+                exclude = gkp.parse_keyword_text(b.get("exclude"))
+                soft = [str(x) for x in (b.get("soft") or []) if str(x).strip()]
+                core = [str(x) for x in (b.get("core") or []) if str(x).strip()]
+                header, rows, cut, stats = sop.assemble(
+                    cache["col"], cache["met"], mixed_words=mixed, exclude_words=exclude,
+                    soft_exclude=soft, core=core, min_volume=minv,
+                    usd_rate=b.get("usd_rate") or None, job=j)
+                j.cache = cache
+                res = _sop_result(j, sop, header, rows, cut, stats,
+                                  {"market": cache["col"]["market"], "lang": cache["col"]["lang"],
+                                   "min_volume": minv, "mixed": mixed})
+                res["lists_used"] = {"mixed": mixed, "exclude": exclude, "soft": soft, "core": core}
+                return res
+
+            return self._json({"job": jobs.start("重打分(不取数)", run).id})
 
         return self._json({"error": "没有这个接口"}, 404)
 
@@ -680,6 +751,22 @@ def _strip_header(rows):
         if first in HEADER_WORDS:
             out.pop(0)
     return out
+
+
+def _sop_result(j, sop, header, rows, cut, stats, params):
+    """总表落盘 + 界面预览。一键流水线和重打分共用。"""
+    clean = {k: v for k, v in stats.items() if not k.startswith("_")}
+    if not rows:
+        return {"count": 0, "preview": [], "csv": None, "stats": clean}
+    csv_path = sop.save_csv(header, rows)
+    xlsx_path = sop.save_workbook(header, rows, cut, stats, params)
+    j.log("已导出 -> %s(总表 CSV)" % csv_path.name)
+    j.log("已导出 -> %s(4 张表的工作簿,可直接导进飞书)" % xlsx_path.name)
+    keymap = dict(zip(sop.COLUMNS, header))
+    preview = [{keymap[k]: v for k, v in r.items() if k in keymap} for r in rows[:200]]
+    return {"count": len(rows), "columns": header, "preview": preview,
+            "csv": csv_path.name, "xlsx": xlsx_path.name,
+            "truncated": len(rows) > 200, "stats": clean}
 
 
 def _lines(text):

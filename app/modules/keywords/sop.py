@@ -101,22 +101,8 @@ def gold(intent, high_bid_usd, local_volume, competition):
     return ""
 
 
-def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=None,
-          exclude_words=None, market="US", lang="en", min_volume=10,
-          usd_rate=None, expand_customer=True, job=None):
-    """跑完整条链路并返回 (表头, 总表行, 剔除词行, 统计)。
-
-    `customer_words` 每项可以是纯关键词,也可以是 `词<Tab>中文<Tab>级别`
-    (逗号分隔也行) —— 对应「原始词核对」页的客户中文与客户级别两列。
-
-    按 SOP 的实际流程,种子词就是客户给的那批词,没有第二个来源。所以
-    `expand_customer=True`(默认)时客户原始词**同时**作为种子做「以关键字拓展」;
-    关掉 = 只给这批词补数据不拓(原「补搜索量」)。`seeds` 参数保留给
-    程序化调用方另加种子,界面上不再单独有这个框。
-    """
-    log = job.log if job else (lambda m: None)
-    seeds = [s for s in (seeds or []) if s]
-    sites = [s.strip() for s in (competitor_sites or []) if s.strip()]
+def parse_customer(customer_words):
+    """把「词<Tab>中文<Tab>级别」行解析成 (customer, cust_meta),键是小写词。"""
     customer, cust_meta = {}, {}
     for raw in (customer_words or []):
         if not str(raw).strip():
@@ -141,8 +127,46 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         customer[w.lower()] = w
         cust_meta[w.lower()] = {"中文": parts[1] if len(parts) > 1 else "",
                                 "级别": parts[2] if len(parts) > 2 else ""}
+    return customer, cust_meta
+
+
+def gkey(k):
+    """查数用的归一键。
+
+    GKP 返回的文本把连字符换成了空格:送 rubber-coated roller 回 rubber coated roller。
+    按原键查会落空、客户词被记成「无数据」(真实客户文件里 4 个词就是这么丢的)。
+    两种写法拿到同一行数据,这是对的。
+    """
+    return re.sub(r"\s+", " ", str(k).lower().replace("-", " ")).strip()
+
+
+def _site_label(site):
+    path = re.sub(r"^https?://", "", site).strip("/")
+    host = path.split("/")[0]
+    # 填首页 = 扒整站(site_seed);填到具体页面 = 只看那一页(url_seed)。
+    # 靠有没有路径自动判,不用再让人选「整站 / 单页」。
+    whole = "/" not in path
+    return host, whole
+
+
+def collect(seeds=None, competitor_sites=None, client_site=None, customer_words=None,
+            market="US", lang="en", expand_customer=True, job=None):
+    """第 1 段:拓词。只收候选词和来源,不取数。
+
+    `customer_words` 每项可以是纯关键词,也可以是 `词<Tab>中文<Tab>级别`
+    (逗号分隔也行) —— 对应「原始词核对」页的客户中文与客户级别两列。
+
+    按 SOP 的实际流程,种子词就是客户给的那批词,没有第二个来源。所以
+    `expand_customer=True`(默认)时客户原始词**同时**作为种子做「以关键字拓展」;
+    关掉 = 只给这批词补数据不拓。`seeds` 参数保留给程序化调用方另加种子。
+    `client_site` 是客户自己的站,扒它拿到客户已经在说的词,来源单独标。
+    """
+    log = job.log if job else (lambda m: None)
+    seeds = [s for s in (seeds or []) if s]
+    sites = [s.strip() for s in (competitor_sites or []) if s.strip()]
+    client_site = (client_site or "").strip() or None
+    customer, cust_meta = parse_customer(customer_words)
     market = (market or "US").upper()
-    market_cn = COUNTRIES.get(market, ("该市场",))[0]
 
     if expand_customer and customer:
         # 客户词兼作种子。用原始写法(不是小写键),GKP 对大小写不敏感但日志要好读
@@ -150,8 +174,8 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         extra = [w for w in customer.values() if w.lower() not in have]
         seeds = seeds + extra
         log("客户原始词 %d 个兼作种子拓展" % len(extra))
-    if not seeds and not sites and not customer:
-        raise gkp.GkpError("至少要给一样:客户原始词或竞品网址。")
+    if not seeds and not sites and not client_site and not customer:
+        raise gkp.GkpError("至少要给一样:客户原始词、客户网址或竞品网址。")
 
     # provenance: 关键词 -> {来源渠道}
     src = {}
@@ -179,14 +203,12 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         rows = gkp.ideas(seeds=seeds, geos=[market], lang=lang, min_volume=0, job=job)
         log("GKP以关键字拓展 -> 新增 %d" % absorb(rows, "GKP以关键字拓展"))
 
-    # ---- 3. 竞品站拓展 ----
-    for site in sites:
-        path = re.sub(r"^https?://", "", site).strip("/")
-        host = path.split("/")[0]
-        # 填首页 = 扒整站(site_seed);填到具体页面 = 只看那一页(url_seed)。
-        # 靠有没有路径自动判,不用再让人选「整站 / 单页」。
-        whole = "/" not in path
-        label = "GKP以网站拓展(%s%s)" % (host, "" if whole else " 单页")
+    # ---- 3. 客户站 + 竞品站拓展 ----
+    for site, tag in [(client_site, "客户站")] + [(x, None) for x in sites]:
+        if not site:
+            continue
+        host, whole = _site_label(site)
+        label = "GKP以网站拓展(%s%s)" % (tag or host, "" if whole else " 单页")
         try:
             rows = gkp.ideas(url=site, site=whole, geos=[market], lang=lang,
                              min_volume=0, job=job)
@@ -195,26 +217,66 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
             continue
         log("%s -> 新增 %d" % (label, absorb(rows, label)))
 
-    words = [pool[k] for k in pool]
-    log("合并去重后共 %d 个词,开始补两轮搜索量" % len(words))
+    log("合并去重后共 %d 个词" % len(pool))
+    return {"pool": pool, "src": src, "customer": customer, "cust_meta": cust_meta,
+            "market": market, "lang": lang}
 
-    # GKP 返回的文本把连字符换成了空格:送 rubber-coated roller 回 rubber coated roller。
-    # 按原键查会落空、客户词被记成「无数据」(真实客户文件里 4 个词就是这么丢的)。
-    # 查数一律用「去连字符 + 压空格」的归一键;两种写法会拿到同一行数据,这是对的。
-    def gkey(k):
-        return re.sub(r"\s+", " ", str(k).lower().replace("-", " ")).strip()
 
-    # ---- 4. 主市场月搜 ----
+def fetch(col, job=None):
+    """第 2 段:两轮取数(主市场 + 全球不限地区)。"""
+    log = job.log if job else (lambda m: None)
+    words = [col["pool"][k] for k in col["pool"]]
+    market_cn = COUNTRIES.get(col["market"], ("该市场",))[0]
+    log("开始补两轮搜索量,%d 个词" % len(words))
     local = {gkey(r["关键词"]): r for r in
-             gkp.volume(words, geos=[market], lang=lang, job=job)}
+             gkp.volume(words, geos=[col["market"]], lang=col["lang"], job=job)}
     log("%s月搜:拿到 %d 行" % (market_cn, len(local)))
-
-    # ---- 5. 全球月搜(不限地区)----
     world = {gkey(r["关键词"]): r for r in
-             _volume_worldwide(words, lang=lang, job=job)}
+             _volume_worldwide(words, lang=col["lang"], job=job)}
     log("全球月搜:拿到 %d 行" % len(world))
+    return {"local": local, "world": world}
 
-    # ---- 6. 组表 ----
+
+def add_words(col, met, words, channel, job=None):
+    """往候选池追加词并补齐数据(AI 策略词用)。
+
+    当客户词对待:豁免规则⑦。策略词的定义就是「客户确实做、搜索量低」,
+    按量筛会误杀,所以必须和客户原始词同等待遇。
+    """
+    new = []
+    for w in words:
+        w = gkp.norm_kw(w)
+        if w and w.lower() not in col["pool"] and w.lower() not in {x.lower() for x in new}:
+            new.append(w)
+    if not new:
+        return 0
+    for w in new:
+        k = w.lower()
+        col["pool"][k] = w
+        col["src"].setdefault(k, set()).add(channel)
+        col["customer"].setdefault(k, w)
+        col["cust_meta"].setdefault(k, {"中文": "", "级别": ""})
+    met["local"].update({gkey(r["关键词"]): r for r in
+                         gkp.volume(new, geos=[col["market"]], lang=col["lang"], job=job)})
+    met["world"].update({gkey(r["关键词"]): r for r in
+                         _volume_worldwide(new, lang=col["lang"], job=job)})
+    return len(new)
+
+
+def assemble(col, met, mixed_words=None, exclude_words=None, soft_exclude=None, core=None,
+             min_volume=10, usd_rate=None, job=None):
+    """第 3 段:筛词 + 打分 + 组表。**纯函数,不碰网络** —— 改清单重打分不用重新取数。
+
+    exclude_words:硬剔,命中即剔(手写清单、AI 标 hard 的:客户明确不做的品类)
+    soft_exclude :软剔,命中但含核心词的放行(AI 标 hard=false 的:跨行业混杂、相邻品类)
+    core         :核心词,豁免层。`*conveyor belt*` 软剔,但 conveyor belt rollers
+                  含核心词 roller,是客户产品,救回来
+    """
+    log = job.log if job else (lambda m: None)
+    pool, src, customer, cust_meta = col["pool"], col["src"], col["customer"], col["cust_meta"]
+    local, world = met["local"], met["world"]
+    market_cn = COUNTRIES.get(col["market"], ("该市场",))[0]
+
     rate = float(usd_rate or config.get("defaults.usd_rate", 7.0))
     currency = (list(local.values())[0]["货币"] if local else "USD")
     to_usd = (lambda v: round(v / rate, 2)) if currency != "USD" else (lambda v: v)
@@ -222,14 +284,28 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         log("账号币种是 %s,页首出价按 1 USD = %.2f %s 折算成 USD(口径表用 USD)"
             % (currency, rate, currency))
 
+    mixed_words = [w for w in (mixed_words or []) if str(w).strip()]
+    exclude_words = [w for w in (exclude_words or []) if str(w).strip()]
+    soft_exclude = [w for w in (soft_exclude or []) if str(w).strip()]
+    core = [c for c in (core or []) if str(c).strip()]
     is_mixed = make_mixed_matcher(mixed_words)
-    is_excluded = make_mixed_matcher(exclude_words)
+    is_hard = make_mixed_matcher(exclude_words)
+    is_soft = make_mixed_matcher(soft_exclude)
+    is_core = make_mixed_matcher(["*%s*" % c for c in core]) if core else (lambda w: False)
     if mixed_words:
-        log("混杂/泛词清单 %d 条,命中的词最高只给 P1" % len([w for w in mixed_words if w.strip()]))
-    if exclude_words:
-        log("剔除清单 %d 条" % len([w for w in exclude_words if w.strip()]))
+        log("混杂/泛词清单 %d 条,命中的词最高只给 P1" % len(mixed_words))
+    if exclude_words or soft_exclude:
+        log("剔除清单:硬剔 %d 条,软剔 %d 条(含核心词 %s 的放行)"
+            % (len(exclude_words), len(soft_exclude), "/".join(core) or "—"))
 
     out, cut = [], []
+    saved = flagged = 0
+
+    def which(patterns, kw):
+        for pat in patterns:
+            if make_mixed_matcher([pat])(kw):
+                return pat
+        return ""
 
     def drop(kw, lr, reason):
         cut.append({"关键词": kw,
@@ -245,9 +321,23 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
             drop(kw, None, "GKP 无数据")
             continue
         lv = lr["月均搜索量"] or 0
-        if is_excluded(kw):
+        note = ""
+        if k in customer:
+            # 客户给的词永远不自动剔:清单是机器 / AI 的推断,客户词是客户的原话,
+            # 前者不能静默覆盖后者。命中了留在表上、备注写明命中哪条,人来裁决。
+            hit = which(exclude_words, kw) or (which(soft_exclude, kw) if not is_core(kw) else "")
+            if hit:
+                note = "命中剔除清单「%s」—— 客户给的词,请人工裁决去留" % hit
+                flagged += 1
+        elif is_hard(kw):
             drop(kw, lr, "命中剔除清单")
             continue
+        elif is_soft(kw):
+            if is_core(kw):
+                saved += 1
+            else:
+                drop(kw, lr, "命中剔除清单(软剔)")
+                continue
         # 规则⑦只剔拓展词。客户给的词不剔:策略词的定义就是「客户确实做、搜索量低」,
         # 剔了等于把客户的话当没说。它们留在表上按数据给 P2,客户级别列带着,人工提权。
         if min_volume and lv < min_volume and k not in customer:
@@ -272,7 +362,12 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
             "意图": intent,
             "优先级": priority(intent, high, lv, comp, is_mixed(kw)),
             "金矿": gold(intent, high, lv, comp),
+            "备注": note,
         })
+    if saved:
+        log("软剔命中但含核心词放行 %d 个" % saved)
+    if flagged:
+        log("客户词命中剔除清单 %d 个 —— 没剔,留在表上标了备注,请人工裁决" % flagged)
 
     # 排序:优先级 -> 金矿 -> 月搜
     rank = {"P0": 0, "P1": 1, "P2": 2}
@@ -304,6 +399,18 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
     stats["_world"] = {k: world.get(gkey(k), {}) for k in customer}
     stats["_to_usd_rate"] = rate if currency != "USD" else 1
     return header, out, cut, stats
+
+
+def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=None,
+          exclude_words=None, market="US", lang="en", min_volume=10,
+          usd_rate=None, expand_customer=True, client_site=None, job=None):
+    """跑完整条链路并返回 (表头, 总表行, 剔除词行, 统计)。= collect -> fetch -> assemble。"""
+    col = collect(seeds=seeds, competitor_sites=competitor_sites, client_site=client_site,
+                  customer_words=customer_words, market=market, lang=lang,
+                  expand_customer=expand_customer, job=job)
+    met = fetch(col, job=job)
+    return assemble(col, met, mixed_words=mixed_words, exclude_words=exclude_words,
+                    min_volume=min_volume, usd_rate=usd_rate, job=job)
 
 
 def _volume_worldwide(words, lang, job):

@@ -175,8 +175,10 @@ def derive(material, sample_words=None, extra=None, job=None):
     # 混杂清单里的「裸核心词通配」必须拿掉:*roller* 进了 mixed = 几乎所有产品词
     # 都被压到 P1,整张表的 P0 全没了。实测模型会把 core 原样再抄一遍进 mixed。
     core_l = {c.lower() for c in res["core"]}
+    # 只拦带星号的:*roller* 盖住所有产品词;整词 roller 只命中 roller 本身,
+    # 那正是 SOP 里泛词的正解(裸词 roller vol 40500 就该压到 P1),不能一起拿掉。
     bad = [m for m in res["mixed"]
-           if m["pattern"].replace("*", "").strip().lower() in core_l]
+           if "*" in m["pattern"] and m["pattern"].replace("*", "").strip().lower() in core_l]
     if bad:
         res["mixed"] = [m for m in res["mixed"] if m not in bad]
         res["warnings"].append(

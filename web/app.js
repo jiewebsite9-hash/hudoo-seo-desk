@@ -84,6 +84,7 @@ async function run(url, payload, title) {
   $('log').classList.add('show');
   $('meta').hidden = true;
   $('tblwrap').hidden = true;
+  if ($('aibox')) $('aibox').hidden = true;
 
   try {
     const r = await fetch(url, {
@@ -357,26 +358,28 @@ class Targeting {
 let T = {};
 
 /* ---------------- 按钮 ---------------- */
-/* 上一轮拓出来的词。DeepSeek 生成清单时拿它当样本,能当场算出每条模式会杀掉谁。
-   没跑过就退回用种子词 + 客户原始词 —— 样本越像真实候选池,清单越准。 */
-let LAST_WORDS = [];
-$('run-sop').onclick = () => {
-  afterJob = (st) => {
-    const pv = (st.result || {}).preview || [];
-    LAST_WORDS = pv.map(r => r['关键词']).filter(Boolean);
-    aiNote();
+/* ---------------- 一键流水线:拓词 -> AI 筛词 -> 打分 ----------------
+   AI 只在中间生成筛词清单,产出以勾选表列出来给人核对;取消勾选 / 手动加几条之后
+   「重打分」只重算,不重新取数(取数结果缓存在上一轮作业里)。 */
+let LAST_JOB = null, LAST_AI = null;
+function sopPayload() {
+  return {
+    customer: $('s-customer').value, expand_customer: $('s-expand').checked,
+    client_site: $('s-client').value, sites: $('s-sites').value,
+    material: $('s-mat').value, extra: $('s-dextra').value,
+    auto_lists: $('s-auto').checked, save_as: $('s-dname').value,
+    mixed: $('s-mixed').value, exclude: $('s-exclude').value,
+    geos: T.s.value, lang: $('s-lang').value,
+    min_volume: +$('s-min').value || 0, usd_rate: +$('s-rate').value || 0,
   };
-  run('/api/keywords/sop', {
-  expand_customer: $('s-expand').checked,   // 客户原始词兼作种子;取消 = 只补数据
-  sites: $('s-sites').value,
-  customer: $('s-customer').value,
-  mixed: $('s-mixed').value,
-  exclude: $('s-exclude').value,
-  geos: T.s.value,
-  lang: $('s-lang').value,
-  min_volume: +$('s-min').value || 0,
-  usd_rate: +$('s-rate').value || 0,
-  }, '拓词中…');
+}
+$('run-sop').onclick = () => {
+  if (!$('s-customer').value.trim() && !$('s-sites').value.trim() && !$('s-client').value.trim())
+    return showErr('至少给一样：客户原始词、客户网址或竞品网址。');
+  if ($('s-auto').checked && $('s-mat').value.trim().length < 30 &&
+      !confirm('客户资料没填（或太短），AI 没法判断做什么不做什么，这一轮只按手动清单筛。继续吗？')) return;
+  afterJob = (st) => { LAST_JOB = st.id; LAST_AI = (st.result || {}).ai || null; renderAi(LAST_AI); };
+  run('/api/keywords/sop', sopPayload(), '拓词 → AI 筛词 → 打分…');
 };
 
 
@@ -437,36 +440,51 @@ $('run-derive').onclick = () => {
     save_as: $('d-name').value,
   }, '从客户资料生成清单…');
 };
-/* 拓词页里的 AI 入口。和「学清单」页那个是同一个接口,区别只在样本来源:
-   这里优先用上一轮拓出来的词。产出直接填进两份清单框,永不自动入库(除非填了名字)。 */
-function aiNote() {
-  const el = $('s-ai-note');
-  if (!el) return;
-  el.textContent = LAST_WORDS.length
-    ? '样本：上一轮拓出的 ' + LAST_WORDS.length + ' 个词'
-    : '样本：还没跑过拓词，会用客户原始词';
+function renderAi(ai) {
+  const box = $('aibox');
+  if (!box) return;
+  if (!ai) { box.hidden = true; return; }
+  const esc = v => String(v == null ? '' : v).replace(/</g, '&lt;');
+  const pv = {};
+  (ai.preview || []).forEach(r => { pv[r['模式']] = r; });
+  const cb = (kind, i, e) => `<td><input type="checkbox" data-kind="${kind}" data-i="${i}" ${e.use === false ? '' : 'checked'} style="width:auto"></td>`;
+  let h = `<h3 style="margin:14px 0 6px">AI 筛词清单 <span class="hint" style="font-weight:400">草稿，勾选 = 采用。改完点「重打分」，不重新取数${ai.cost != null ? '　·　本次 AI 花费 $' + ai.cost : ''}</span></h3>`;
+  h += (ai.warnings || []).map(w => `<div class="err" style="display:block;margin:6px 0">${esc(w)}</div>`).join('');
+  h += '<div class="row"><div style="flex:1.5"><label>剔除清单（' + ai.exclude.length + '）</label>'
+     + '<div class="tblwrap" style="max-height:280px"><table><thead><tr><th></th><th>模式</th><th>硬剔</th><th>命中</th><th>实剔</th><th>理由</th></tr></thead><tbody>'
+     + ai.exclude.map((e, i) => { const p = pv[e.pattern] || {}; return '<tr>' + cb('exclude', i, e)
+         + `<td><code>${esc(e.pattern)}</code></td><td>${e.hard ? '是' : ''}</td><td>${esc(p['命中'])}</td><td>${esc(p['实剔'])}</td><td style="white-space:normal">${e.conflict ? '<b style="color:var(--warn)">已停用：' + esc(e.conflict) + '</b>　' : ''}${esc(e.reason)}</td></tr>`; }).join('')
+     + '</tbody></table></div></div>';
+  h += '<div><label>混杂清单（' + ai.mixed.length + '，最高 P1）</label>'
+     + '<div class="tblwrap" style="max-height:280px"><table><thead><tr><th></th><th>模式</th><th>理由</th></tr></thead><tbody>'
+     + ai.mixed.map((e, i) => '<tr>' + cb('mixed', i, e) + `<td><code>${esc(e.pattern)}</code></td><td style="white-space:normal">${(e.cust_hits || []).length ? '<b style="color:var(--warn)">压住 ' + e.cust_hits.length + ' 个客户词：' + esc(e.cust_hits.slice(0, 4).join(' / ')) + '</b>　' : ''}${esc(e.reason)}</td></tr>`).join('')
+     + '</tbody></table></div>'
+     + '<label style="margin-top:10px">策略词（' + ai.strategy.length + '，已按客户词入表）</label><div class="hint">' + (ai.strategy.map(x => esc(x.keyword)).join('　') || '—') + '</div>'
+     + '<label style="margin-top:10px">核心词（软剔的豁免层）</label><div class="hint">' + (ai.core.map(esc).join('　') || '—') + '</div></div></div>';
+  h += '<button class="ghost" id="run-rescore" style="margin-top:10px">重打分（不取数）</button>';
+  box.innerHTML = h;
+  box.hidden = false;
+  box.querySelectorAll('input[type=checkbox]').forEach(x => {
+    x.onchange = () => { LAST_AI[x.dataset.kind][+x.dataset.i].use = x.checked; };
+  });
+  $('run-rescore').onclick = rescore;
 }
-if ($('run-derive-inline')) $('run-derive-inline').onclick = () => {
-  if (!$('s-mat').value.trim()) return showErr('客户资料是空的。');
-  const sample = LAST_WORDS.length ? LAST_WORDS.join(String.fromCharCode(10))
-    : $('s-customer').value;
-  afterJob = (st) => {
-    const L = (st.result || {}).lists;
-    if (!L) return;
-    $('s-exclude').value = (L.exclude || []).join(String.fromCharCode(10));
-    $('s-mixed').value = (L.mixed || []).join(String.fromCharCode(10));
-    // 策略词是「客户确实做、但搜索量低」的词 —— 追加到客户原始词,别覆盖人家填的
-    if ((L.strategy || []).length) {
-      const cur = $('s-customer').value.trim();
-      $('s-customer').value = (cur ? cur + String.fromCharCode(10) : '') + L.strategy.join(String.fromCharCode(10));
-    }
-    loadLib();
-  };
-  run('/api/keywords/derive', {
-    material: $('s-mat').value, sample: sample,
-    extra: $('s-dextra').value, save_as: $('s-dname').value,
-  }, 'DeepSeek 生成清单中…');
-};
+
+function rescore() {
+  if (!LAST_JOB) return showErr('还没跑过。');
+  const NL = String.fromCharCode(10);
+  const ai = LAST_AI || { exclude: [], mixed: [], core: [] };
+  const on = a => (a || []).filter(e => e.use !== false);
+  afterJob = (st) => { LAST_JOB = st.id; renderAi(LAST_AI); };
+  run('/api/keywords/rescore', {
+    job: LAST_JOB,
+    mixed: $('s-mixed').value + NL + on(ai.mixed).map(e => e.pattern).join(NL),
+    exclude: $('s-exclude').value + NL + on(ai.exclude).filter(e => e.hard).map(e => e.pattern).join(NL),
+    soft: on(ai.exclude).filter(e => !e.hard).map(e => e.pattern),
+    core: ai.core || [],
+    min_volume: +$('s-min').value || 0, usd_rate: +$('s-rate').value || 0,
+  }, '重打分…');
+}
 
 $('run-learn').onclick = () => {
   afterJob = () => loadLib();        // 学完再刷新库,不能用 run() 的 then(那时作业还没跑完)
@@ -713,7 +731,6 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
   skillNote();
   loadBalance();
   setKwSrc('empty');
-  aiNote();
   const init = (d.geo || 'US').toUpperCase();
   [T.s].forEach(t => {
     t.add(init);
