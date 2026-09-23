@@ -562,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
                     core = list(ai["core"])
                     strat = [x["keyword"] for x in ai["strategy"]]
                     if strat:
-                        n = sop.add_words(col, met, strat, "AI策略词", job=j)
+                        n = sop.add_words(col, met, strat, "行业速通/策略词(AI)", job=j)
                         j.log("AI 策略词 %d 个,其中 %d 个是池子里没有的,已补数据入池" % (len(strat), n))
                     if (b.get("save_as") or "").strip():
                         rows_, metrics_, core_, note_ = derive.to_list_payload(ai, b["save_as"], "")
@@ -571,9 +571,10 @@ class Handler(BaseHTTPRequestHandler):
                 elif b.get("auto_lists", True):
                     j.log("客户资料不足 30 字,跳过 AI 筛词 —— 只用手动清单")
 
+                reasons = {e["pattern"]: e.get("reason", "") for e in (ai["exclude"] if ai else [])}
                 header, rows, cut, stats = sop.assemble(
                     col, met, mixed_words=mixed, exclude_words=exclude,
-                    soft_exclude=soft, core=core, min_volume=minv,
+                    soft_exclude=soft, core=core, reasons=reasons, min_volume=minv,
                     usd_rate=b.get("usd_rate") or None, job=j)
                 # 缓存取数结果:改清单只重打分,不重新取数
                 j.cache = {"col": col, "met": met}
@@ -603,9 +604,10 @@ class Handler(BaseHTTPRequestHandler):
                 exclude = gkp.parse_keyword_text(b.get("exclude"))
                 soft = [str(x) for x in (b.get("soft") or []) if str(x).strip()]
                 core = [str(x) for x in (b.get("core") or []) if str(x).strip()]
+                reasons = {str(k): str(v) for k, v in (b.get("reasons") or {}).items()}
                 header, rows, cut, stats = sop.assemble(
                     cache["col"], cache["met"], mixed_words=mixed, exclude_words=exclude,
-                    soft_exclude=soft, core=core, min_volume=minv,
+                    soft_exclude=soft, core=core, reasons=reasons, min_volume=minv,
                     usd_rate=b.get("usd_rate") or None, job=j)
                 j.cache = cache
                 res = _sop_result(j, sop, header, rows, cut, stats,

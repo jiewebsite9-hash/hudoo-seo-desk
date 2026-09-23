@@ -482,6 +482,7 @@ function rescore() {
     exclude: $('s-exclude').value + NL + on(ai.exclude).filter(e => e.hard).map(e => e.pattern).join(NL),
     soft: on(ai.exclude).filter(e => !e.hard).map(e => e.pattern),
     core: ai.core || [],
+    reasons: Object.fromEntries((ai.exclude || []).map(e => [e.pattern, e.reason || ''])),
     min_volume: +$('s-min').value || 0, usd_rate: +$('s-rate').value || 0,
   }, '重打分…');
 }

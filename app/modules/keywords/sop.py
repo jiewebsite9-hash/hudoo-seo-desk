@@ -204,11 +204,12 @@ def collect(seeds=None, competitor_sites=None, client_site=None, customer_words=
         log("GKP以关键字拓展 -> 新增 %d" % absorb(rows, "GKP以关键字拓展"))
 
     # ---- 3. 客户站 + 竞品站拓展 ----
-    for site, tag in [(client_site, "客户站")] + [(x, None) for x in sites]:
+    # 命名对齐飞书总表:客户站叫「GKP以网站拓展(站)」,竞品站叫「GKP竞品收割(站)」
+    for site, mine in [(client_site, True)] + [(x, False) for x in sites]:
         if not site:
             continue
         host, whole = _site_label(site)
-        label = "GKP以网站拓展(%s%s)" % (tag or host, "" if whole else " 单页")
+        label = "%s(%s%s)" % ("GKP以网站拓展" if mine else "GKP竞品收割", host, "" if whole else " 单页")
         try:
             rows = gkp.ideas(url=site, site=whole, geos=[market], lang=lang,
                              min_volume=0, job=job)
@@ -234,13 +235,21 @@ def fetch(col, job=None):
     world = {gkey(r["关键词"]): r for r in
              _volume_worldwide(words, lang=col["lang"], job=job)}
     log("全球月搜:拿到 %d 行" % len(world))
-    return {"local": local, "world": world}
+    # 变体归属:GKP 把 conveyor rollers 合并进 conveyor roller,只回后者。
+    # 记下「变体 -> 代表词」,组表时变体行跟随代表词的数据,不再被记成「无数据」。
+    variant_of = {}
+    for r in local.values():
+        for v in r.get("变体") or []:
+            variant_of[gkey(v)] = gkey(r["关键词"])
+    if variant_of:
+        log("GKP 判定同组同量的变体 %d 个(单复数 / 连字符写法),跟随主词、不单独定级" % len(variant_of))
+    return {"local": local, "world": world, "variant_of": variant_of}
 
 
 def add_words(col, met, words, channel, job=None):
     """往候选池追加词并补齐数据(AI 策略词用)。
 
-    当客户词对待:豁免规则⑦。策略词的定义就是「客户确实做、搜索量低」,
+    只豁免规则⑦(不当客户词):策略词的定义就是「客户确实做、搜索量低」,
     按量筛会误杀,所以必须和客户原始词同等待遇。
     """
     new = []
@@ -254,28 +263,35 @@ def add_words(col, met, words, channel, job=None):
         k = w.lower()
         col["pool"][k] = w
         col["src"].setdefault(k, set()).add(channel)
-        col["customer"].setdefault(k, w)
-        col["cust_meta"].setdefault(k, {"中文": "", "级别": ""})
+        # 不进 customer:总表口径里策略词是拓展词,核对页只放客户给的词。
+        # 只豁免规则⑦ —— 策略词的定义就是「客户确实做、搜索量低」。
+        col.setdefault("keep", set()).add(k)
     met["local"].update({gkey(r["关键词"]): r for r in
                          gkp.volume(new, geos=[col["market"]], lang=col["lang"], job=job)})
     met["world"].update({gkey(r["关键词"]): r for r in
                          _volume_worldwide(new, lang=col["lang"], job=job)})
+    for r in list(met["local"].values()):
+        for v in r.get("变体") or []:
+            met.setdefault("variant_of", {})[gkey(v)] = gkey(r["关键词"])
     return len(new)
 
 
 def assemble(col, met, mixed_words=None, exclude_words=None, soft_exclude=None, core=None,
-             min_volume=10, usd_rate=None, job=None):
+             reasons=None, min_volume=10, usd_rate=None, job=None):
     """第 3 段:筛词 + 打分 + 组表。**纯函数,不碰网络** —— 改清单重打分不用重新取数。
 
     exclude_words:硬剔,命中即剔(手写清单、AI 标 hard 的:客户明确不做的品类)
     soft_exclude :软剔,命中但含核心词的放行(AI 标 hard=false 的:跨行业混杂、相邻品类)
     core         :核心词,豁免层。`*conveyor belt*` 软剔,但 conveyor belt rollers
                   含核心词 roller,是客户产品,救回来
+    reasons      :{模式: 理由},剔除原因列带上 AI 给的理由
     """
     log = job.log if job else (lambda m: None)
     pool, src, customer, cust_meta = col["pool"], col["src"], col["customer"], col["cust_meta"]
     local, world = met["local"], met["world"]
+    variant_of = met.get("variant_of") or {}
     market_cn = COUNTRIES.get(col["market"], ("该市场",))[0]
+    reasons = reasons or {}
 
     rate = float(usd_rate or config.get("defaults.usd_rate", 7.0))
     currency = (list(local.values())[0]["货币"] if local else "USD")
@@ -289,23 +305,46 @@ def assemble(col, met, mixed_words=None, exclude_words=None, soft_exclude=None, 
     soft_exclude = [w for w in (soft_exclude or []) if str(w).strip()]
     core = [c for c in (core or []) if str(c).strip()]
     is_mixed = make_mixed_matcher(mixed_words)
-    is_hard = make_mixed_matcher(exclude_words)
-    is_soft = make_mixed_matcher(soft_exclude)
     is_core = make_mixed_matcher(["*%s*" % c for c in core]) if core else (lambda w: False)
+    # 预编译:要知道命中的是哪条模式(剔除原因 / 备注都要写它)
+    hard_list = [(pat, make_mixed_matcher([pat])) for pat in exclude_words]
+    soft_list = [(pat, make_mixed_matcher([pat])) for pat in soft_exclude]
+
+    def which(lst, kw):
+        for pat, fn in lst:
+            if fn(kw):
+                return pat
+        return ""
+
+    def why(pat, soft=False):
+        r = reasons.get(pat)
+        head = "命中剔除清单(软剔)" if soft else "命中剔除清单"
+        return "%s:%s" % (head, r) if r else "%s「%s」" % (head, pat)
+
     if mixed_words:
         log("混杂/泛词清单 %d 条,命中的词最高只给 P1" % len(mixed_words))
     if exclude_words or soft_exclude:
         log("剔除清单:硬剔 %d 条,软剔 %d 条(含核心词 %s 的放行)"
             % (len(exclude_words), len(soft_exclude), "/".join(core) or "—"))
 
+    # ---- 变体分组:代表词 + 它的 close_variants 是一组;客户给的词优先当主 ----
+    disp = {}
+    for k, w in pool.items():
+        disp.setdefault(gkey(k), w)
+    cust_g = {gkey(c) for c in customer}
+    members = {}
+    for v, m in variant_of.items():
+        members.setdefault(m, []).append(v)
+    lead_of, metrics_key = {}, {}
+    for m, vs in members.items():
+        group = [m] + [v for v in vs if v != m]
+        lead = next((g for g in group if g in cust_g), m)
+        for g in group:
+            lead_of[g] = lead
+            metrics_key[g] = m
+
     out, cut = [], []
     saved = flagged = 0
-
-    def which(patterns, kw):
-        for pat in patterns:
-            if make_mixed_matcher([pat])(kw):
-                return pat
-        return ""
 
     def drop(kw, lr, reason):
         cut.append({"关键词": kw,
@@ -315,40 +354,50 @@ def assemble(col, met, mixed_words=None, exclude_words=None, soft_exclude=None, 
                     "页首出价高位(USD)": to_usd((lr or {}).get("页首出价高", 0) or 0) or "",
                     "剔除原因": reason})
 
+    verdict = {}
     for k, kw in pool.items():
-        lr = local.get(gkey(k))
+        gk = gkey(k)
+        mk_ = metrics_key.get(gk, gk)
+        lr = local.get(mk_)
         if not lr:
             drop(kw, None, "GKP 无数据")
+            if k in customer:
+                verdict[k] = "剔除:GKP 无数据"
             continue
         lv = lr["月均搜索量"] or 0
+        lead = lead_of.get(gk, gk)
+        is_var = lead != gk
         note = ""
         if k in customer:
             # 客户给的词永远不自动剔:清单是机器 / AI 的推断,客户词是客户的原话,
             # 前者不能静默覆盖后者。命中了留在表上、备注写明命中哪条,人来裁决。
-            hit = which(exclude_words, kw) or (which(soft_exclude, kw) if not is_core(kw) else "")
+            hit = which(hard_list, kw) or (which(soft_list, kw) if not is_core(kw) else "")
             if hit:
                 note = "命中剔除清单「%s」—— 客户给的词,请人工裁决去留" % hit
                 flagged += 1
-        elif is_hard(kw):
-            drop(kw, lr, "命中剔除清单")
-            continue
-        elif is_soft(kw):
-            if is_core(kw):
-                saved += 1
-            else:
-                drop(kw, lr, "命中剔除清单(软剔)")
+        else:
+            hit = which(hard_list, kw)
+            if hit:
+                drop(kw, lr, why(hit))
                 continue
+            hit = which(soft_list, kw)
+            if hit:
+                if is_core(kw):
+                    saved += 1
+                else:
+                    drop(kw, lr, why(hit, soft=True))
+                    continue
         # 规则⑦只剔拓展词。客户给的词不剔:策略词的定义就是「客户确实做、搜索量低」,
         # 剔了等于把客户的话当没说。它们留在表上按数据给 P2,客户级别列带着,人工提权。
-        if min_volume and lv < min_volume and k not in customer:
+        if min_volume and lv < min_volume and k not in customer and k not in col.get("keep", set()):
             drop(kw, lr, "%s月搜 < %d(剔除规则⑦)" % (market_cn, min_volume))
             continue
-        wr = world.get(gkey(k)) or {}
+        wr = world.get(mk_) or {}
         low = to_usd(lr["页首出价低"] or 0)
         high = to_usd(lr["页首出价高"] or 0)
         comp = lr["竞争程度"] or ""
         intent = classify_intent(kw)
-        out.append({
+        row = {
             "关键词": kw,
             "词源": "原始词" if k in customer else "拓展词",
             "客户级别": (cust_meta.get(k) or {}).get("级别", ""),
@@ -363,24 +412,42 @@ def assemble(col, met, mixed_words=None, exclude_words=None, soft_exclude=None, 
             "优先级": priority(intent, high, lv, comp, is_mixed(kw)),
             "金矿": gold(intent, high, lv, comp),
             "备注": note,
-        })
+            "_lead": lead,
+        }
+        if is_var:
+            # 变体跟随主词:不单独定级、不占位。对齐总表「变体（同组同量）」的写法。
+            row["优先级"] = "—"
+            row["金矿"] = ""
+            row["布局角色"] = "变体（同组同量）"
+            row["备注"] = ("GKP 同组同量,跟随「%s」" % disp.get(lead, lead)) + ("；" + note if note else "")
+        out.append(row)
+        if k in customer:
+            verdict[k] = "保留" + (" · 作同义变体" if is_var else "") + ("(命中剔除清单,待裁决)" if note else "")
     if saved:
         log("软剔命中但含核心词放行 %d 个" % saved)
     if flagged:
         log("客户词命中剔除清单 %d 个 —— 没剔,留在表上标了备注,请人工裁决" % flagged)
 
-    # 排序:优先级 -> 金矿 -> 月搜
+    # 排序:优先级 -> 金矿 -> 月搜;变体紧跟在主词后面
     rank = {"P0": 0, "P1": 1, "P2": 2}
-    out.sort(key=lambda r: (rank.get(r["优先级"], 9), 0 if r["金矿"] else 1,
-                            -(r["{市场}月搜"] or 0)))
+    by_g = {gkey(r["关键词"]): r for r in out}
+    def key(r):
+        lead = by_g.get(r["_lead"], r)
+        return (rank.get(lead["优先级"], 9), 0 if lead["金矿"] else 1,
+                -(lead["{市场}月搜"] or 0), 0 if lead is r else 1)
+    out.sort(key=key)
     for i, r in enumerate(out, 1):
         r["序号"] = i
+        r.pop("_lead", None)
         for c in BLANK:
             r.setdefault(c, "")
 
     header = [c.replace("{市场}", market_cn) for c in COLUMNS]
+    n_var = sum(1 for r in out if r["优先级"] == "—")
     stats = {
         "总词数": len(out),
+        "不含变体": len(out) - n_var,
+        "变体": n_var,
         "剔除": len(cut),
         "P0": sum(1 for r in out if r["优先级"] == "P0"),
         "P1": sum(1 for r in out if r["优先级"] == "P1"),
@@ -391,12 +458,16 @@ def assemble(col, met, mixed_words=None, exclude_words=None, soft_exclude=None, 
         "汇率": rate if currency != "USD" else None,
         "市场": market_cn,
     }
-    log("成表 %d 行(剔除 %d):P0 %d / P1 %d / P2 %d,金矿 %d"
-        % (stats["总词数"], len(cut), stats["P0"], stats["P1"], stats["P2"], stats["金矿"]))
+    log("成表 %d 行(变体 %d,剔除 %d):P0 %d / P1 %d / P2 %d,金矿 %d"
+        % (stats["总词数"], n_var, len(cut), stats["P0"], stats["P1"], stats["P2"], stats["金矿"]))
     cut.sort(key=lambda r: -(r["{市场}月搜"] or 0))
     stats["_customer_meta"] = cust_meta
-    stats["_local"] = {k: local[gkey(k)] for k in customer if gkey(k) in local}
-    stats["_world"] = {k: world.get(gkey(k), {}) for k in customer}
+    stats["_local"] = {k: local[metrics_key.get(gkey(k), gkey(k))]
+                       for k in customer if metrics_key.get(gkey(k), gkey(k)) in local}
+    stats["_world"] = {k: world.get(metrics_key.get(gkey(k), gkey(k)), {}) for k in customer}
+    stats["_verdict"] = verdict
+    stats["_variant_lead"] = {k: disp.get(lead_of[gkey(k)], "") for k in customer
+                              if lead_of.get(gkey(k), gkey(k)) != gkey(k)}
     stats["_to_usd_rate"] = rate if currency != "USD" else 1
     return header, out, cut, stats
 
@@ -437,7 +508,7 @@ def _volume_worldwide(words, lang, job):
         except GoogleAdsException as e:
             raise gkp.GkpError(gkp._explain(e))
         for r in resp.results:
-            rows.append(gkp.metrics_row(r.text, r.keyword_metrics, currency))
+            rows.append(gkp.metrics_row(r.text, r.keyword_metrics, currency, getattr(r, "close_variants", None)))
     return rows
 
 
@@ -453,14 +524,15 @@ def save_csv(header, rows):
 
 
 CUT_COLUMNS = ["关键词", "词源", "{市场}月搜", "竞争程度", "页首出价高位(USD)", "剔除原因"]
+# 对齐飞书总表第 2 页的 13 列。判定 / 布局角色按流水线结果填,目标URL / 该页主词留给布词。
 CHECK_COLUMNS = ["序号", "关键词", "客户中文", "客户级别", "{市场}月搜", "全球月搜",
-                 "竞争程度", "页首出价高位(USD)"]
+                 "竞争程度", "页首出价高位(USD)", "判定", "布局角色", "目标URL", "该页主词", "说明"]
 
 
 def save_workbook(header, rows, cut, stats, params):
     """一个 xlsx 四张表,对齐飞书那本工作簿的结构。
 
-    第 3 页「URL布词视图」不生成 —— 它是人工布词结果(目标URL / 布局角色 / 该页主词)
+    第 3 页「URL布词视图」不生成 —— 它是布词结果(目标URL / 布局角色 / 该页主词)
     的透视,那几列填完之前没法算。
     """
     from openpyxl import Workbook
@@ -489,27 +561,35 @@ def save_workbook(header, rows, cut, stats, params):
     # 1. 总表
     sheet("1.关键词-URL总表", header,
           [[r.get(k, "") for k in COLUMNS] for r in rows],
-          [6, 34, 8, 9, 30, 10, 11, 10, 9, 15, 15, 7, 8, 6, 9, 24, 10, 10, 26, 30])
+          [6, 34, 8, 9, 30, 10, 11, 10, 9, 15, 15, 7, 8, 6, 16, 24, 10, 10, 26, 40])
 
     # 2. 原始词核对
     meta = stats.get("_customer_meta") or {}
     loc = stats.get("_local") or {}
     wor = stats.get("_world") or {}
+    verdict = stats.get("_verdict") or {}
+    vlead = stats.get("_variant_lead") or {}
     rate = stats.get("_to_usd_rate") or 1
     chk = []
     for i, (k, m) in enumerate(sorted(meta.items(),
                                       key=lambda kv: -((loc.get(kv[0]) or {}).get("月均搜索量") or 0)), 1):
         lr = loc.get(k) or {}
-        chk.append([i, (lr.get("关键词") or k), m.get("中文", ""), m.get("级别", ""),
+        role = "变体（同组同量）" if k in vlead else ""
+        note = ("与「%s」同组同量(GKP 视为同一词),不单独布局,文案中作同义变体；" % vlead[k]) if k in vlead else ""
+        if m.get("中文"):
+            note += "客户释义:%s" % m["中文"]
+        chk.append([i, (lr.get("关键词") or k) if k not in vlead else k, m.get("中文", ""), m.get("级别", ""),
                     lr.get("月均搜索量", ""), (wor.get(k) or {}).get("月均搜索量", ""),
                     lr.get("竞争程度", ""),
-                    round((lr.get("页首出价高") or 0) / rate, 2) or ""])
+                    round((lr.get("页首出价高") or 0) / rate, 2) or "",
+                    verdict.get(k, ""), role, "", "", note.strip("；")])
     if chk:
-        sheet("2.原始词核对", sub(CHECK_COLUMNS), chk, [6, 34, 18, 9, 10, 10, 9, 15])
+        sheet("2.原始词核对(客户%d词)" % len(chk), sub(CHECK_COLUMNS), chk,
+              [6, 34, 18, 9, 10, 10, 9, 15, 26, 16, 24, 26, 46])
 
     # 4. 剔除词
     sheet("4.剔除词", sub(CUT_COLUMNS),
-          [[r.get(k, "") for k in CUT_COLUMNS] for r in cut], [34, 8, 10, 9, 15, 26])
+          [[r.get(k, "") for k in CUT_COLUMNS] for r in cut], [34, 8, 10, 9, 15, 40])
 
     # 5. 口径说明 —— 记录本次实际生效的参数,别人拿到表能复现
     notes = [
@@ -518,8 +598,9 @@ def save_workbook(header, rows, cut, stats, params):
                      "拉取日期 %s。" % datetime.now().strftime("%Y-%m-%d")],
         ["地区 / 语言", "%s月搜 = %s · %s;全球月搜 = 不限地区 · %s。"
                     % (mk, params.get("market"), params.get("lang"), params.get("lang"))],
-        ["词源", "原始词 = 客户提供的词表;拓展词 = GKP 关键字拓展 / 网站拓展。"
-                 "来源渠道列记录每个词由哪一路拿到,多路命中用「；」连接。"],
+        ["词源", "原始词 = 客户提供的词表(含客户级别与中文释义);拓展词 = GKP 关键字拓展 / "
+                 "网站拓展 / 竞品收割 / 策略词。来源渠道列记录每个词由哪一路拿到,多路命中用「；」连接:"
+                 "GKP以关键字拓展 / GKP以网站拓展(客户站) / GKP竞品收割(竞品站) / 行业速通/策略词(AI) / 客户提供。"],
         ["竞争程度", "GKP 高 / 中 / 低(互旦关键词 SOP V2 唯一口径;KD 不进最终表)。"],
         ["页首出价", "GKP 页首出价低位 / 高位。账号币种 %s%s"
                  % (stats.get("币种"),
@@ -527,26 +608,33 @@ def save_workbook(header, rows, cut, stats, params):
                     if stats.get("汇率") else ",直接为 USD。")],
         ["意图", "交易 = 含 manufacturer / supplier / for sale / custom / price 等采购词;"
                  "信息 = 问句(how/what/which…)/ guide / design / drawing / pdf / 标准等;"
-                 "其余归商业(含 vs / types of / 规格 —— 买家在比选,广告主按商业词出价)。"],
+                 "其余归商业(含 vs / types of / 规格 —— 买家在比选,广告主按商业词出价)。"
+                 "按词面判定;布词时若把某词布到指南页,可人工改为信息。"],
         ["优先级", "P0 = 交易/商业意图 且 页首出价高位 ≥ $3 且 %s月搜 ≥ 20;"
-                   "P1 = %s月搜 10–100 且竞争低/中,或 C/T 意图且出价 ≥ $1;P2 = 其余。"
+                   "P1 = %s月搜 10–100 且竞争低/中,或 C/T 意图且出价 ≥ $1;P2 = 其余;"
+                   "— = 同组同量变体,跟随主词。"
                    "最低月搜(规则⑦)只剔拓展词,客户原始词豁免、留在表上按数据定级。"
                    "命中混杂/泛词清单的词最高只给 P1。"
-                   "原文「长尾降为 P1」依赖人工的布局角色列,导出时未执行,请人工补。" % (mk, mk)],
+                   "原文「长尾降为 P1」依赖布局角色列,布词后请人工补。" % (mk, mk)],
         ["金矿 ★", "竞争低/中 且 页首出价高位 ≥ $5 且 %s月搜 ≥ 20,"
-                   "或 %s月搜 ≥ 100 且竞争低;信息型词不给。" % (mk, mk)],
-        ["剔除", "本次自动剔除 %d 个词,原因见第 4 页。自动执行的只有「%s月搜 < %d」"
-                 "和「命中剔除清单」两条;口径里其余剔除规则(泛词/跨行业/系统级/"
-                 "不生产/品牌平台词)属词义判断,请把要剔的词加进剔除清单再跑。"
+                   "或 %s月搜 ≥ 100 且竞争低;信息型词、变体不给。" % (mk, mk)],
+        ["变体（同组同量）", "GKP 把单复数 / 连字符写法合并成一组只回代表词,被合并的词在 close_variants 里。"
+                          "本表把它们标为「变体（同组同量）」,优先级「—」,紧跟主词排;客户给的词优先当主。"
+                          "文案中作同义替换,不单独占位。本次 %d 个。" % stats.get("变体", 0)],
+        ["布局角色", "主词 = 每个 URL 唯一,写进 Title 主位 + H1 + 首段;次词 = Title 副位 / H2 / 规格表;"
+                     "长尾 = H3 / 正文 / 产品 FAQ;FAQ/正文 = 落在产品页的信息型问句;"
+                     "变体 = 与主词同组同量的写法变体,不单独占位。一页一主词:主关键词全表不重复,同一词只归一个 URL。"],
+        ["剔除", "本次自动剔除 %d 个词,原因见第 4 页(AI 清单命中的带 AI 给的理由)。自动执行的是"
+                 "「%s月搜 < %d 的拓展词」和「命中剔除清单」;命中清单的客户词不剔,留在表上标备注请人工裁决。"
                  % (len(cut), mk, params.get("min_volume"))],
         ["混杂/泛词清单", "整词匹配,支持 * 通配。本次 %d 条。" % len(params.get("mixed") or [])],
-        ["人工列", "客户级别 / 布局角色 / 目标URL / 页面类型 / 页面状态 / 该页主词 / 备注 "
-                  "这 7 列由人工填写,导出时留空。"],
-        ["未生成的页", "「URL布词视图」是人工布词结果的透视,需先在总表里填完 "
+        ["人工列", "布局角色(变体已填)/ 目标URL / 页面类型 / 页面状态 / 该页主词 由布词填写,导出时留空;"
+                  "备注列已带机器提示(变体归属、命中清单),可覆盖。"],
+        ["未生成的页", "「URL布词视图」是布词结果的透视,需先在总表里填完 "
                      "目标URL / 布局角色 / 该页主词 才能生成。"],
-        ["产出规模", "总表 %d 词(P0 %d / P1 %d / P2 %d,金矿 %d),原始词 %d,剔除 %d。"
-                   % (stats["总词数"], stats["P0"], stats["P1"], stats["P2"],
-                      stats["金矿"], stats["原始词"], len(cut))],
+        ["产出规模", "总表 %d 词(不含变体 %d;P0 %d / P1 %d / P2 %d,金矿 %d),原始词 %d,剔除 %d。"
+                   % (stats["总词数"], stats.get("不含变体", stats["总词数"]), stats["P0"], stats["P1"],
+                      stats["P2"], stats["金矿"], stats["原始词"], len(cut))],
     ]
     ws = sheet("5.口径说明", ["项目", "说明"], notes, [18, 120])
     for row in ws.iter_rows(min_row=2):

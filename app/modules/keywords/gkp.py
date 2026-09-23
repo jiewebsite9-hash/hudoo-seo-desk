@@ -156,13 +156,16 @@ def value_tag(high_bid, currency):
     return ""
 
 
-def metrics_row(text, m, currency):
+def metrics_row(text, m, currency, close_variants=None):
     monthly = ["%d-%02d:%d" % (v.year, MONTHS.get(v.month.name, 0), v.monthly_searches)
                for v in m.monthly_search_volumes]
     comp = m.competition.name if m.competition else ""
     high = _micros(m.high_top_of_page_bid_micros)
     return {
         "关键词": text,
+        # GKP 把写法变体(单复数 / 连字符)合并成一组,只回代表词,其余列在这里。
+        # 不接这个字段,被合并的词就会被记成「无数据」。
+        "变体": list(close_variants or []),
         "月均搜索量": m.avg_monthly_searches,
         "搜索量档位": bucket(m.avg_monthly_searches),
         "竞争程度": COMP_CN.get(comp, comp),
@@ -250,7 +253,7 @@ def volume(keywords, geos, lang="en", partners=False, avg_cpc=True, job=None):
             raise GkpError(_explain(e))
         got = 0
         for r in resp.results:
-            rows.append(metrics_row(r.text, r.keyword_metrics, currency))
+            rows.append(metrics_row(r.text, r.keyword_metrics, currency, getattr(r, "close_variants", None)))
             got += 1
         log("  批次 %d:送 %d 回 %d(GKP 自己会去重/丢弃无数据词)"
             % (i // VOLUME_BATCH + 1, len(chunk), got))
@@ -301,7 +304,7 @@ def ideas(seeds=None, url=None, site=False, geos=None, lang="en",
             if k in seen:
                 continue
             seen.add(k)
-            rows.append(metrics_row(r.text, r.keyword_idea_metrics, currency))
+            rows.append(metrics_row(r.text, r.keyword_idea_metrics, currency, getattr(r, "close_variants", None)))
             got += 1
         log("  %s -> 新增 %d(累计 %d)" % (label, got, len(rows)))
 
