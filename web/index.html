@@ -130,7 +130,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
           <textarea id="s-customer" data-tpl="customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea>
           <label style="display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--ink);font-weight:400">
             <input type="checkbox" id="s-expand" checked style="width:auto">兼作种子拓展（取消 = 只补数据）</label></div>
-        <div><label>客户网址（扒客户自己的站拓词）</label><input id="s-client" placeholder="https://client-site.com">
+        <div><label>客户网址（拓词 + 布词都用它）</label><input id="s-client" placeholder="https://client-site.com">
           <label style="margin-top:10px">竞品网址（一行一个；首页=整站，具体页=单页）</label>
           <textarea id="s-sites" data-tpl="sites" style="min-height:74px" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
       </div>
@@ -140,6 +140,8 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
         <div><label>补充说明（可选）</label><input id="s-dextra" placeholder="例如：主做美国市场，只做 B2B 批量">
           <label style="display:flex;align-items:center;gap:6px;margin-top:10px;color:var(--ink);font-weight:400">
             <input type="checkbox" id="s-auto" checked style="width:auto">让 AI（DeepSeek）生成筛词清单</label>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--ink);font-weight:400">
+            <input type="checkbox" id="s-layout" checked style="width:auto">让 AI 布词（需填客户网址；出第 3 页「URL布词视图」）</label>
           <label style="margin-top:10px">清单存进清单库（留空不存）</label><input id="s-dname" placeholder="例如：某某设备行业"></div>
       </div>
       <details class="ai" id="s-manual">
@@ -333,6 +335,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <span class="ver" id="stats" style="margin-left:auto"></span>
     </div>
     <div id="aibox" hidden></div>
+    <div id="laybox" hidden></div>
     <div class="tblwrap" id="tblwrap" hidden><table id="tbl"></table></div>
   </div>
 </main>

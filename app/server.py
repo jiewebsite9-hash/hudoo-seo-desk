@@ -576,10 +576,32 @@ class Handler(BaseHTTPRequestHandler):
                     col, met, mixed_words=mixed, exclude_words=exclude,
                     soft_exclude=soft, core=core, reasons=reasons, min_volume=minv,
                     usd_rate=b.get("usd_rate") or None, job=j)
-                # 缓存取数结果:改清单只重打分,不重新取数
-                j.cache = {"col": col, "met": met}
+                # ---- AI 布词:填 布局角色 / 目标URL / 页面类型 / 页面状态 / 该页主词,出第 3 页 ----
+                lay = None
+                client_site = (b.get("client_site") or "").strip()
+                if b.get("auto_layout", True) and client_site:
+                    from app.modules.keywords import layout
+                    try:
+                        rows, plan, pv, info = layout.run(client_site, rows, "{市场}月搜", extra=b.get("extra"), log=j.log)
+                        assigned = info.pop("assigned")
+                        stats["_pivot"] = pv
+                        lay = {"plan": plan, "assigned": assigned}
+                        info["pivot"] = pv[:80]
+                    except Exception as e:
+                        # 布词失败不能把前面的活一起废掉:表照出,只是那几列空着
+                        j.log("[布词失败] %s —— 总表照常导出,布词列留空" % str(e)[:160])
+                        info = None
+                elif b.get("auto_layout", True):
+                    j.log("没填客户网址,跳过 AI 布词")
+                    info = None
+                else:
+                    info = None
+                # 缓存取数结果:改清单只重打分,不重新取数;布词结果一起缓存
+                j.cache = {"col": col, "met": met, "layout": lay}
                 res = _sop_result(j, sop, header, rows, cut, stats,
                                   {"market": market, "lang": lang, "min_volume": minv, "mixed": mixed})
+                if info:
+                    res["layout"] = info
                 res["lists_used"] = {"mixed": mixed, "exclude": exclude, "soft": soft, "core": core}
                 if ai:
                     res["ai"] = {"exclude": ai["exclude"], "mixed": ai["mixed"],
@@ -609,10 +631,21 @@ class Handler(BaseHTTPRequestHandler):
                     cache["col"], cache["met"], mixed_words=mixed, exclude_words=exclude,
                     soft_exclude=soft, core=core, reasons=reasons, min_volume=minv,
                     usd_rate=b.get("usd_rate") or None, job=j)
+                lay = cache.get("layout")
+                if lay:
+                    from app.modules.keywords import layout
+                    rows = layout.apply(rows, lay["plan"], lay["assigned"], "{市场}月搜", log=j.log)
+                    stats["_pivot"] = layout.pivot(rows, lay["plan"], "{市场}月搜")
                 j.cache = cache
                 res = _sop_result(j, sop, header, rows, cut, stats,
                                   {"market": cache["col"]["market"], "lang": cache["col"]["lang"],
                                    "min_volume": minv, "mixed": mixed})
+                if lay:
+                    pv = stats["_pivot"]
+                    res["layout"] = {"existing": sum(1 for p in lay["plan"] if p["status"] == "已有"),
+                                     "new": sum(1 for p in lay["plan"] if p["status"] == "待建"),
+                                     "orphans": sum(1 for r in rows if r.get("优先级") != "—" and not r.get("目标URL")),
+                                     "cost": 0, "pages_crawled": None, "pivot": pv[:80]}
                 res["lists_used"] = {"mixed": mixed, "exclude": exclude, "soft": soft, "core": core}
                 return res
 

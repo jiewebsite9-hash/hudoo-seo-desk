@@ -85,6 +85,7 @@ async function run(url, payload, title) {
   $('meta').hidden = true;
   $('tblwrap').hidden = true;
   if ($('aibox')) $('aibox').hidden = true;
+  if ($('laybox')) $('laybox').hidden = true;
 
   try {
     const r = await fetch(url, {
@@ -367,7 +368,7 @@ function sopPayload() {
     customer: $('s-customer').value, expand_customer: $('s-expand').checked,
     client_site: $('s-client').value, sites: $('s-sites').value,
     material: $('s-mat').value, extra: $('s-dextra').value,
-    auto_lists: $('s-auto').checked, save_as: $('s-dname').value,
+    auto_lists: $('s-auto').checked, auto_layout: $('s-layout').checked, save_as: $('s-dname').value,
     mixed: $('s-mixed').value, exclude: $('s-exclude').value,
     geos: T.s.value, lang: $('s-lang').value,
     min_volume: +$('s-min').value || 0, usd_rate: +$('s-rate').value || 0,
@@ -378,8 +379,8 @@ $('run-sop').onclick = () => {
     return showErr('至少给一样：客户原始词、客户网址或竞品网址。');
   if ($('s-auto').checked && $('s-mat').value.trim().length < 30 &&
       !confirm('客户资料没填（或太短），AI 没法判断做什么不做什么，这一轮只按手动清单筛。继续吗？')) return;
-  afterJob = (st) => { LAST_JOB = st.id; LAST_AI = (st.result || {}).ai || null; renderAi(LAST_AI); };
-  run('/api/keywords/sop', sopPayload(), '拓词 → AI 筛词 → 打分…');
+  afterJob = (st) => { LAST_JOB = st.id; LAST_AI = (st.result || {}).ai || null; renderAi(LAST_AI); renderLayout((st.result || {}).layout); };
+  run('/api/keywords/sop', sopPayload(), '拓词 → AI 筛词 → 打分 → 布词…');
 };
 
 
@@ -470,12 +471,27 @@ function renderAi(ai) {
   $('run-rescore').onclick = rescore;
 }
 
+function renderLayout(lay) {
+  const box = $('laybox');
+  if (!box) return;
+  if (!lay) { box.hidden = true; return; }
+  const esc = v => String(v == null ? '' : v).replace(/</g, '&lt;');
+  const pv = lay.pivot || [];
+  const mk = pv.length ? Object.keys(pv[0]).find(k => k.endsWith('月搜合计(不含变体)')) : '';
+  let h = `<h3 style="margin:14px 0 6px">AI 布词 <span class="hint" style="font-weight:400">${lay.pages_crawled != null ? '抓到 ' + lay.pages_crawled + ' 个页面　·　' : ''}规划 ${lay.existing} 个已有页 + ${lay.new} 个待建页　·　分不到页 ${lay.orphans} 个词（留在表上标了备注）${lay.cost ? '　·　本次 AI 花费 $' + lay.cost : ''}　·　完整视图在 xlsx 第 3 页</span></h3>`;
+  h += '<div class="tblwrap" style="max-height:320px"><table><thead><tr><th>目标URL</th><th>类型</th><th>状态</th><th>主关键词</th><th>次关键词</th><th>词数</th><th>月搜合计</th><th>金矿</th></tr></thead><tbody>'
+     + pv.map(r => `<tr><td><code>${esc(r['目标URL'])}</code></td><td>${esc(r['页面类型'])}</td><td>${r['页面状态'] === '待建' ? '<b style="color:var(--warn)">待建</b>' : esc(r['页面状态'])}</td><td><b>${esc(r['主关键词'])}</b></td><td style="white-space:normal;max-width:420px">${esc(String(r['次关键词'] || '').split(' | ').slice(0, 6).join(' | '))}</td><td>${esc(r['关键词数(不含变体)'])}</td><td>${esc(mk ? r[mk] : '')}</td><td>${esc(r['金矿词数'])}</td></tr>`).join('')
+     + '</tbody></table></div>';
+  box.innerHTML = h;
+  box.hidden = false;
+}
+
 function rescore() {
   if (!LAST_JOB) return showErr('还没跑过。');
   const NL = String.fromCharCode(10);
   const ai = LAST_AI || { exclude: [], mixed: [], core: [] };
   const on = a => (a || []).filter(e => e.use !== false);
-  afterJob = (st) => { LAST_JOB = st.id; renderAi(LAST_AI); };
+  afterJob = (st) => { LAST_JOB = st.id; renderAi(LAST_AI); renderLayout((st.result || {}).layout); };
   run('/api/keywords/rescore', {
     job: LAST_JOB,
     mixed: $('s-mixed').value + NL + on(ai.mixed).map(e => e.pattern).join(NL),

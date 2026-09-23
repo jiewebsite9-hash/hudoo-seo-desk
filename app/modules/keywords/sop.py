@@ -570,11 +570,13 @@ def save_workbook(header, rows, cut, stats, params):
     verdict = stats.get("_verdict") or {}
     vlead = stats.get("_variant_lead") or {}
     rate = stats.get("_to_usd_rate") or 1
+    rowmap = {str(r.get("关键词", "")).lower(): r for r in rows}   # 布词结果从总表行回填
     chk = []
     for i, (k, m) in enumerate(sorted(meta.items(),
                                       key=lambda kv: -((loc.get(kv[0]) or {}).get("月均搜索量") or 0)), 1):
         lr = loc.get(k) or {}
-        role = "变体（同组同量）" if k in vlead else ""
+        rr = rowmap.get(k) or {}
+        role = rr.get("布局角色") or ("变体（同组同量）" if k in vlead else "")
         note = ("与「%s」同组同量(GKP 视为同一词),不单独布局,文案中作同义变体；" % vlead[k]) if k in vlead else ""
         if m.get("中文"):
             note += "客户释义:%s" % m["中文"]
@@ -582,10 +584,18 @@ def save_workbook(header, rows, cut, stats, params):
                     lr.get("月均搜索量", ""), (wor.get(k) or {}).get("月均搜索量", ""),
                     lr.get("竞争程度", ""),
                     round((lr.get("页首出价高") or 0) / rate, 2) or "",
-                    verdict.get(k, ""), role, "", "", note.strip("；")])
+                    verdict.get(k, ""), role, rr.get("目标URL", ""), rr.get("该页主词", ""), note.strip("；")])
     if chk:
         sheet("2.原始词核对(客户%d词)" % len(chk), sub(CHECK_COLUMNS), chk,
               [6, 34, 18, 9, 10, 10, 9, 15, 26, 16, 24, 26, 46])
+
+    # 3. URL布词视图 —— 布词跑过才有
+    pv = stats.get("_pivot") or []
+    if pv:
+        from . import layout
+        sheet("3.URL布词视图", sub(layout.PIVOT_COLUMNS),
+              [[r.get(c, "") for c in layout.PIVOT_COLUMNS] for r in pv],
+              [46, 9, 9, 30, 60, 60, 10, 12, 8, 8, 40])
 
     # 4. 剔除词
     sheet("4.剔除词", sub(CUT_COLUMNS),
@@ -630,8 +640,12 @@ def save_workbook(header, rows, cut, stats, params):
         ["混杂/泛词清单", "整词匹配,支持 * 通配。本次 %d 条。" % len(params.get("mixed") or [])],
         ["人工列", "布局角色(变体已填)/ 目标URL / 页面类型 / 页面状态 / 该页主词 由布词填写,导出时留空;"
                   "备注列已带机器提示(变体归属、命中清单),可覆盖。"],
-        ["未生成的页", "「URL布词视图」是布词结果的透视,需先在总表里填完 "
-                     "目标URL / 布局角色 / 该页主词 才能生成。"],
+        ["布词", ("AI 已布词:抓站点 URL 清单 -> 一次调用出页面规划(一页一主词,缺页提待建)"
+                 "-> 分块把其余词分到页定角色 -> 代码校验(URL 必须在规划里、主词唯一、长尾降 P1)。"
+                 "分不到页的词留在表上标「无法归入任何页面（人工复核）」。第 3 页是按 URL 的透视。"
+                 "产出是草稿:待建页要不要建、主词选得对不对,请人工核。") if pv else
+                ("「URL布词视图」是布词结果的透视,需先在总表里填完 目标URL / 布局角色 / 该页主词 才能生成"
+                 "(填了客户网址并勾选「让 AI 布词」会自动生成)。")],
         ["产出规模", "总表 %d 词(不含变体 %d;P0 %d / P1 %d / P2 %d,金矿 %d),原始词 %d,剔除 %d。"
                    % (stats["总词数"], stats.get("不含变体", stats["总词数"]), stats["P0"], stats["P1"],
                       stats["P2"], stats["金矿"], stats["原始词"], len(cut))],
