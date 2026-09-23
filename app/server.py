@@ -182,6 +182,28 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)}, 404)
             return self._json({"lists": learn.list_saved()})
 
+        if p == "/api/skills/list":
+            from app.modules import skillpack
+            return self._json({"dir": str(config.skills_dir()),
+                               "home_skills": str(config.HOME / "skills"),
+                               "skills": skillpack.list_skills()})
+
+        if p == "/api/skills/export":
+            from app.modules import skillpack
+            names = [n for n in (q.get("name") or []) if n]
+            try:
+                data, ns, nf = skillpack.export_zip(names or None)
+            except skillpack.SkillPackError as e:
+                return self._json({"error": str(e)}, 400)
+            from datetime import datetime
+            fn = "skill包_%d个_%s.zip" % (ns, datetime.now().strftime("%Y%m%d"))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition", _disposition(fn))
+            self.end_headers()
+            return self.wfile.write(data)
+
         if p == "/api/options":
             from app.modules.keywords import locations
             return self._json(locations.options())
@@ -275,6 +297,23 @@ class Handler(BaseHTTPRequestHandler):
         # 一旦被 _body() 按 JSON 读掉,这里再读 Content-Length 就会永久阻塞。
         if p == "/api/parse-file":
             return self._parse_file()
+
+        # 同理:zip 是二进制,不能先被 _body() 当 JSON 读掉
+        if p == "/api/skills/import":
+            from app.modules import skillpack
+            n = int(self.headers.get("Content-Length") or 0)
+            if not n:
+                return self._json({"error": "没收到文件内容"}, 400)
+            if n > 60 * 1024 * 1024:
+                return self._json({"error": "文件超过 60MB"}, 400)
+            raw = self.rfile.read(n)
+            try:
+                r = skillpack.import_zip(raw)
+            except skillpack.SkillPackError as e:
+                return self._json({"error": str(e)}, 400)
+            except Exception as e:
+                return self._json({"error": "%s: %s" % (type(e).__name__, e)}, 400)
+            return self._json(r)
 
         # 同理,社媒数据包也是二进制上传,必须排在 _body() 之前
         if p == "/api/social/upload":

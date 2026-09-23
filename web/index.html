@@ -357,8 +357,12 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="ghost" id="run-check">自检 Google Ads 连接</button>
         <button class="ghost" id="run-llm">自检 LLM 连接</button>
+        <button class="ghost" id="skill-export">⬇ 导出 skill 包</button>
+        <button class="ghost" id="skill-import">⬆ 导入 skill 包</button>
+        <input type="file" id="skill-zip" accept=".zip" hidden>
       </div>
-      <p class="hint" style="margin:12px 0 0">LLM 用于 skill 引擎，<b>刻意没绑死一家</b>：模型名变动很快（DeepSeek 半年改了三次），不同 skill 也该配不同模型。在 <code>llm</code> 段选 provider 和 model 即可；DeepSeek 兼容 OpenAI SDK，填 key 就能用。</p>
+      <p class="hint" style="margin:12px 0 0" id="skill-note"></p>
+      <p class="hint" style="margin:8px 0 0">LLM 用于 skill 引擎，<b>刻意没绑死一家</b>：模型名变动很快（DeepSeek 半年改了三次），不同 skill 也该配不同模型。在 <code>llm</code> 段选 provider 和 model 即可；DeepSeek 兼容 OpenAI SDK，填 key 就能用。</p>
     </div>
     <div class="card">
       <h2>首次配置</h2>

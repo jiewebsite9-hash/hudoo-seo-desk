@@ -557,6 +557,43 @@ $('run-ranks-view').onclick = async () => {
            preview: d.rows.slice(0, 300), csv: null, truncated: d.rows.length > 300,
            stats: { 轮次: (d.cost || {}).run_date, 上轮花费: '$' + ((d.cost || {}).cost || 0), 待补查: d.failed } });
 };
+
+/* ---------------- skill 内容包 ----------------
+   skill 是使用方的内部资产,不进仓库,所以程序发出去之后对方机器上是空的。
+   开发机导出 zip -> 随程序一起发 -> 对方点导入,解压进自己的数据目录。   */
+async function skillNote() {
+  const el = $('skill-note');
+  if (!el) return;
+  const d = await fetch('/api/skills/list').then(r => r.json()).catch(() => null);
+  if (!d) return;
+  const n = (d.skills || []).length;
+  el.innerHTML = n
+    ? `当前 skill 目录下有 <b>${n}</b> 个内容包。发给同事时点「导出」打成 zip，对方在这一页点「导入」即可。`
+    : `<b style="color:var(--warn)">这台机器还没有 skill 内容包</b> —— skill 引擎会无事可做。` +
+      `找开发机导出一个 zip，在这一页点「导入」，会解压到 ${d.home_skills}。`;
+}
+
+if ($('skill-export')) {
+  $('skill-export').onclick = () => { location.href = '/api/skills/export'; };
+  $('skill-import').onclick = () => $('skill-zip').click();
+  $('skill-zip').onchange = async () => {
+    const f = $('skill-zip').files[0];
+    if (!f) return;
+    showErr('');
+    const note = $('skill-note');
+    note.textContent = '正在导入 ' + f.name + ' …';
+    try {
+      const r = await fetch('/api/skills/import', { method: 'POST', body: await f.arrayBuffer() })
+        .then(x => x.json());
+      if (r.error) throw new Error(r.error);
+      note.innerHTML = `已导入 <b>${r.skills.length}</b> 个 skill（${r.files} 个文件）到 ${r.dest}。`;
+      loadStatus();
+    } catch (e) {
+      showErr('导入失败：' + e.message);
+      skillNote();
+    } finally { $('skill-zip').value = ''; }
+  };
+}
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检 Google Ads…');
 $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
 
@@ -572,6 +609,7 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
   T.s = new Targeting('s', opts);
   loadLib();
   loadProjects(opts);
+  skillNote();
   const init = (d.geo || 'US').toUpperCase();
   [T.i, T.v, T.s].forEach(t => {
     t.add(init);
