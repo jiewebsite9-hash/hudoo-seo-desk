@@ -26,16 +26,17 @@ COLUMNS = ["序号", "关键词", "词源", "客户级别", "来源渠道", "{�
 #  但定布局角色和目标URL 时要看它,所以必须带过去。)
 BLANK = {"布局角色", "目标URL", "页面类型", "页面状态", "该页主词", "备注"}
 
-# ---- 意图判定(口径说明 第 7 条)----
-# 交易 = 采购意图词;信息 = 科普/对比/规格问句;其余归商业
+# ---- 意图判定(口径说明 第 7 条;触发词按真实项目 535 个人工验收词回测对齐)----
+# 交易 = 采购意图词;信息 = 问句 / 科普 / 图纸资料;其余归商业(含 vs / types of / 规格 ——
+# 这些是买家在比选,广告主也按商业词出价,回测里 type of roller conveyor 出价 $5)
 TRANSACTIONAL = re.compile(
-    r"\b(manufacturer|manufacturers|supplier|suppliers|factory|factories|"
-    r"wholesale|for\s+sale|buy|price|prices|pricing|cost|custom|customized|"
-    r"oem|odm|exporter|distributor|vendor|company|companies|quote)\b", re.I)
+    r"\b(manufactur\w*|supplier\w*|factory|factories|distributor\w*|exporter\w*|"
+    r"wholesale|bulk|order|for\s+sale|buy|price|prices|pricing|cost|quote|"
+    r"custom|customized|oem|odm|vendor|company|companies|near\s+me|hs\s+code)\b", re.I)
 INFORMATIONAL = re.compile(
-    r"(\bhow\s+to\b|\bwhat\s+is\b|\bwhy\b|\btypes?\s+of\b|\bsizes?\b|\bvs\b|"
-    r"\bversus\b|\bdifference\b|\bguide\b|\btutorial\b|\bstandard[s]?\b|"
-    r"\bdiagram\b|\bmeaning\b|\bdefinition\b|\bcalculat)", re.I)
+    r"(^(what|how|why|which|when|where|who|is|are|does|do|can)\b|"
+    r"\b(guide|tutorial|meaning|definition|diagram|drawing|design|pdf|wikipedia|"
+    r"difference\s+between|calculat\w*|standard[s]?)\b)", re.I)
 
 
 def classify_intent(kw):
@@ -57,7 +58,11 @@ def priority(intent, high_bid_usd, local_volume, competition, mixed=False):
     """
     if not mixed and intent in ("交易", "商业") and high_bid_usd >= 3 and local_volume >= 20:
         return "P0"
-    if local_volume >= 10 and (competition in ("低", "中") or high_bid_usd >= 1):
+    # SSOT:P1 = 「10–100 长尾且竞争低/中」或「C/T 意图且出价 ¥7–20(≈$1–3)」。
+    # 上限 100 不能丢 —— 回测里 6 个 vol=500、出价 $0 的词就是因为没上限被抬成 P1。
+    if 10 <= local_volume <= 100 and competition in ("低", "中"):
+        return "P1"
+    if intent in ("交易", "商业") and high_bid_usd >= 1 and local_volume >= 10:
         return "P1"
     return "P2"
 
@@ -231,7 +236,9 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         if is_excluded(kw):
             drop(kw, lr, "命中剔除清单")
             continue
-        if min_volume and lv < min_volume:
+        # 规则⑦只剔拓展词。客户给的词不剔:策略词的定义就是「客户确实做、搜索量低」,
+        # 剔了等于把客户的话当没说。它们留在表上按数据给 P2,客户级别列带着,人工提权。
+        if min_volume and lv < min_volume and k not in customer:
             drop(kw, lr, "%s月搜 < %d(剔除规则⑦)" % (market_cn, min_volume))
             continue
         wr = world.get(k) or {}
@@ -400,9 +407,11 @@ def save_workbook(header, rows, cut, stats, params):
                     ",已按 1 USD = %s %s 折算成 USD。" % (stats.get("汇率"), stats.get("币种"))
                     if stats.get("汇率") else ",直接为 USD。")],
         ["意图", "交易 = 含 manufacturer / supplier / for sale / custom / price 等采购词;"
-                 "信息 = how to / types / sizes / vs / 标准等;其余归商业。"],
+                 "信息 = 问句(how/what/which…)/ guide / design / drawing / pdf / 标准等;"
+                 "其余归商业(含 vs / types of / 规格 —— 买家在比选,广告主按商业词出价)。"],
         ["优先级", "P0 = 交易/商业意图 且 页首出价高位 ≥ $3 且 %s月搜 ≥ 20;"
-                   "P1 = %s月搜 ≥ 10 且(竞争低/中 或 出价 ≥ $1);P2 = 其余。"
+                   "P1 = %s月搜 10–100 且竞争低/中,或 C/T 意图且出价 ≥ $1;P2 = 其余。"
+                   "最低月搜(规则⑦)只剔拓展词,客户原始词豁免、留在表上按数据定级。"
                    "命中混杂/泛词清单的词最高只给 P1。"
                    "原文「长尾降为 P1」依赖人工的布局角色列,导出时未执行,请人工补。" % (mk, mk)],
         ["金矿 ★", "竞争低/中 且 页首出价高位 ≥ $5 且 %s月搜 ≥ 20,"
