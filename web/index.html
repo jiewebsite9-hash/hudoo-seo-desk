@@ -136,9 +136,9 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <p class="sect">② 筛词清单（可选）　<span class="hint" style="font-weight:400">清单库：<select id="s-lib" style="width:auto;display:inline-block;padding:4px 8px"><option value="">（不带入）</option></select></span></p>
       <div class="row">
         <div><label>混杂 / 泛词清单（命中的词最高只给 P1）</label>
-          <textarea id="s-mixed" data-tpl="mixed" placeholder="roller manufacturer&#10;rubber roller*&#10;steel roller*"></textarea></div>
+          <textarea id="s-mixed" data-tpl="mixed" placeholder="一行一条，例：rubber roller*"></textarea></div>
         <div><label>剔除清单（命中的词移入「剔除词」页）</label>
-          <textarea id="s-exclude" data-tpl="exclude" placeholder="*conveyor belt*&#10;*conveyor system*&#10;*industrial automation*&#10;roller&#10;pulley"></textarea></div>
+          <textarea id="s-exclude" data-tpl="exclude" placeholder="一行一条，例：*conveyor belt*"></textarea></div>
       </div>
       <p class="hint" style="margin:-4px 0 12px">默认整词匹配；<code>*abc*</code> = 包含，<code>abc*</code> = 开头。</p>
       <details class="ai" id="s-ai">
