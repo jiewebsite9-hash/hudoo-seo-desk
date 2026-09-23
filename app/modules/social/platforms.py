@@ -138,7 +138,10 @@ def group(sheets):
                 plat, idx = hit, i
                 break
         if plat:
-            client = parts[idx - 1] if idx >= 1 else "未分组"
+            # 平台词嵌在客户目录名里(「某客户linkedin内容访客关注者」)时,客户就是这一层去掉平台词;
+            # 纯平台目录(「Facebook」)才取上一级
+            rest = _strip_alias(parts[idx])
+            client = rest if rest else (parts[idx - 1] if idx >= 1 else "未分组")
         else:
             plat = _sniff(s)
             client = parts[-2] if len(parts) >= 2 else "未分组"
@@ -149,18 +152,42 @@ def group(sheets):
 
 
 def _platform_of(name):
+    """目录名等于 / 以平台名开头 / 含平台名。
+
+    「含」只放给 ≥4 个字符或中文的别名:专员会把平台名写进客户目录
+    (「某客户linkedin内容访客关注者」),但 fb / ig 这种两个字母撞上普通英文的概率太高。
+    """
     low = str(name).strip().lower()
     for plat, keys in ALIASES.items():
         for k in keys:
             if low == k or low.startswith(k):
                 return plat
+    for plat, keys in ALIASES.items():
+        for k in keys:
+            if (len(k) >= 4 or not k.isascii()) and k in low:
+                return plat
     return None
 
 
+def _strip_alias(name):
+    """目录名去掉平台词,剩下的当客户名;剩不下东西说明这层就是纯平台目录。"""
+    out = str(name).strip()
+    for keys in ALIASES.values():
+        for k in sorted(keys, key=len, reverse=True):
+            i = out.lower().find(k)
+            if i >= 0 and (len(k) >= 4 or not k.isascii() or out.lower() == k):
+                out = out[:i] + out[i + len(k):]
+    return out.strip(" -_·|()（）[]【】")
+
+
 def _sniff(sheet):
-    """路径认不出时,按内容特征兜底。"""
-    head = " ".join(str(c) for c in (sheet.rows[0] if sheet.rows else []))
+    """路径认不出时,按内容特征兜底。看前三行 —— LinkedIn 导出第一行常是说明文字。"""
+    head = " ".join(str(c) for r in (sheet.rows[:3] if sheet.rows else []) for c in r)
     name = (sheet.sheet or "") + " " + sheet.path
+    # LinkedIn 受众页(地点 / 职能类别 / …)只有两列:类别 + 总浏览量 / 关注者总数。
+    # 必须排在 FB 指标词表前面,「总浏览量」含「浏览量」会被 FB 抢走,凭空多出一个 Facebook。
+    if (sheet.sheet or "") in LI_AUDIENCE or "关注者总数" in head or "推广所得关注者" in head:
+        return "linkedin"
     if "帖子编号" in head and "账户账号" in head:
         return "instagram"
     if "帖子编号" in head and "公共主页名称" in head:
@@ -232,14 +259,29 @@ def _fb_posts(data, hdr, rows):
 
 # ---------------------------------------------------------------- Instagram
 
-def _instagram(data, sheets, year):
-    """IG 后台只导得出帖子级、且是「内容创建至今」的累计口径,没有账号级日数据。
+IG_METRIC = {
+    "浏览量": "impressions", "覆盖人数": "reach", "内容互动次数": "engagement",
+    "instagram 链接点击量": "clicks", "instagram 主页访问量": "profile_views",
+    "instagram 关注次数": "new_followers",
+}
 
-    这不是导出漏了,是 IG 后台该入口本身就不给 —— 所以这里必然只有 posts,
-    并且打上 flag 让 checks.py 提醒「不可与其他平台横向比」。
+
+def _instagram(data, sheets, year):
+    """IG 有两种导出:账号级日 csv(和 FB 一样一个指标一个文件)+ 帖子级 csv(「内容创建至今」累计)。
+
+    之前只吃帖子级,还断言「IG 后台不给账号级日数据」—— 拿真实导出一测,日 csv 明明在。
+    帖子级仍是累计口径,有 posts 没 daily 时打 flag 提醒不可横向比。
     """
+    daily = {}
     for s in sheets:
-        hdr = s.rows[0] if s.rows else []
+        rows = s.rows
+        head0 = str(rows[0][0]).strip().lower() if rows and rows[0] else ""
+        if head0 in IG_METRIC:
+            field = IG_METRIC[head0]
+            for r in rows[2:]:
+                _merge_daily(daily, _date(_cell(r, 0)), field, _num(_cell(r, 1)))
+            continue
+        hdr = rows[0] if rows else []
         if _find(hdr, "帖子编号") is None:
             continue
         ix = {k: _find(hdr, *v) for k, v in {
@@ -248,7 +290,7 @@ def _instagram(data, sheets, year):
             "comments": ("评论",), "shares": ("分享",), "saves": ("收藏次数",),
             "new_followers": ("关注者数",), "duration": ("时长（秒）",),
             "url": ("固定链接",), "window": ("数据注释",)}.items()}
-        for r in s.rows[1:]:
+        for r in rows[1:]:
             p = {k: (_date(_cell(r, i)) if k == "date" else
                      _cell(r, i) if k in ("kind", "title", "url", "window") else
                      _num(_cell(r, i))) for k, i in ix.items()}
@@ -257,7 +299,8 @@ def _instagram(data, sheets, year):
             p["engagement"] = sum(v for v in (p.get("likes"), p.get("comments"),
                                               p.get("shares"), p.get("saves")) if v) or 0
             data["posts"].append(p)
-    if data["posts"]:
+    data["daily"] = list(daily.values())
+    if data["posts"] and not data["daily"]:
         data["flags"].append("ig_post_level_cumulative")
 
 
@@ -289,9 +332,29 @@ def _youtube(data, sheets, year):
                 _merge_daily(daily, d, "watch_hours", _num(_cell(r, ih)))
             continue
 
-        # 图表数据:一行一个「视频×日期」,用来给每个视频补发布日期。
-        # 必须排在下面的总计分支前面 —— 它同时有「日期」和「唯一身份观看者人数」两列,
-        # 会被那个分支抢走,结果所有视频的发布日期全丢。
+        # 「内容」维度的表格数据:一行一个视频,首行总计。
+        # **必须排在图表数据分支前面**:它也有「视频发布时间」列,会被那个分支抢走,
+        # 结果只收了发布日期、一条视频都没进 posts(真实导出测出来的)。
+        if _find(hdr, "内容") is not None and _find(hdr, "视频标题") is not None \
+                and _find(hdr, "缩略图展示次数") is not None:
+            ix = {k: _find(hdr, *v) for k, v in {
+                "title": ("视频标题",), "date": ("视频发布时间",), "reach": ("唯一身份观看者人数",),
+                "impressions": ("观看次数",), "subs": ("订阅人数",), "likes": ("赞",),
+                "thumb_impr": ("缩略图展示次数",), "thumb_ctr": ("缩略图点击率 (%)",)}.items()}
+            for r in rows[1:]:
+                rec = {k: (_cell(r, i) if k == "title" else _date(_cell(r, i)) if k == "date"
+                           else _num(_cell(r, i))) for k, i in ix.items()}
+                if str(_cell(r, 0)).strip() == "总计":
+                    for k in ("reach", "subs", "thumb_impr", "thumb_ctr"):
+                        data["totals"][k] = rec.get(k)
+                    data["totals"]["views_by_content"] = rec.get("impressions")
+                    continue
+                rec["id"] = _cell(r, 0)
+                rec["engagement"] = rec.get("likes") or 0
+                data["posts"].append(rec)
+            continue
+
+        # 图表数据:一行一个「视频×日期」,只用来给没有发布日期的视频补日期
         if _find(hdr, "视频发布时间") is not None:
             it, ip = _find(hdr, "内容"), _find(hdr, "视频发布时间")
             pub = {}
@@ -311,28 +374,8 @@ def _youtube(data, sheets, year):
             data["flags"].append("yt_reach_not_additive")
             continue
 
-        # 「内容」维度的表格数据:一行一个视频,首行总计
-        if _find(hdr, "内容") is not None and _find(hdr, "视频标题") is not None \
-                and _find(hdr, "缩略图展示次数") is not None:
-            ix = {k: _find(hdr, *v) for k, v in {
-                "title": ("视频标题",), "reach": ("唯一身份观看者人数",),
-                "impressions": ("观看次数",), "subs": ("订阅人数",),
-                "thumb_impr": ("缩略图展示次数",), "thumb_ctr": ("缩略图点击率 (%)",)}.items()}
-            for r in rows[1:]:
-                rec = {k: (_cell(r, i) if k == "title" else _num(_cell(r, i)))
-                       for k, i in ix.items()}
-                if str(_cell(r, 0)).strip() == "总计":
-                    for k in ("reach", "subs", "thumb_impr", "thumb_ctr"):
-                        data["totals"][k] = rec.get(k)
-                    data["totals"]["views_by_content"] = rec.get("impressions")
-                    continue
-                rec["id"] = _cell(r, 0)
-                rec["date"] = None
-                data["posts"].append(rec)
-            continue
-
     for p in data["posts"]:
-        if p.get("id") in data.get("_pub", {}):
+        if not p.get("date") and p.get("id") in data.get("_pub", {}):
             p["date"] = data["_pub"][p["id"]]
     data.pop("_pub", None)
     data["daily"] = list(daily.values())
@@ -354,6 +397,11 @@ def _linkedin(data, sheets, year):
         rows, name = s.rows, (s.sheet or "")
         if not rows:
             continue
+        # 内容分析导出的「数据」「全部动态」两页第一行是一句说明文字,真表头在第二行。
+        # 不跳过,整页就认不出 —— 周报会写成「本期无贴文发布」。
+        if len(rows) > 1 and sum(1 for c in rows[0] if str(c).strip()) == 1 \
+                and sum(1 for c in rows[1] if str(c).strip()) > 1:
+            rows = rows[1:]
         hdr = rows[0]
 
         if name in LI_AUDIENCE and len(hdr) >= 2:
@@ -445,6 +493,14 @@ def _tiktok(data, sheets, year):
             data["flags"].append("tiktok_no_reach")
             continue
 
+        if _find(hdr, "Total Viewers") is not None:                    # Viewers
+            iv, inw = _find(hdr, "Total Viewers"), _find(hdr, "New Viewers")
+            for r in rows[1:]:
+                d = _date(_cell(r, 0), year)
+                _merge_daily(daily, d, "reach", _num(_cell(r, iv)))
+                _merge_daily(daily, d, "new_viewers", _num(_cell(r, inw)))
+            continue
+
         # 必须排在 FollowerHistory 前面:「Active followers」含有「followers」,
         # _find 的模糊匹配会让它被下面那个分支抢走,粉丝数就变成了活跃人数。
         if _find(hdr, "Active followers") is not None:                 # FollowerActivity
@@ -494,3 +550,6 @@ def _tiktok(data, sheets, year):
                 data["posts"].append(p)
             data["flags"].append("tiktok_content_cumulative")
     data["daily"] = list(daily.values())
+    # 有 Viewers 导出就有真实的日触达,不再提示「没有 reach」
+    if any("reach" in r for r in data["daily"]) and "tiktok_no_reach" in data["flags"]:
+        data["flags"].remove("tiktok_no_reach")

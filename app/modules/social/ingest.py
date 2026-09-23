@@ -84,7 +84,7 @@ def read_upload(raw, filename):
     return parse_member(raw, filename)
 
 
-def _read_zip(raw):
+def _read_zip(raw, depth=0):
     out = []
     skipped = []
     try:
@@ -97,6 +97,22 @@ def _read_zip(raw):
                 continue
             name = _fix_zip_name(info)
             if JUNK.search("/" + name):
+                continue
+            # 嵌套 zip:YouTube / TikTok 后台导出本身就是 zip,专员原样放进包里。
+            # 递归展开,内层路径接在外层 zip 的目录 + 文件名后面,客户 / 平台目录才保得住。
+            if name.lower().endswith(".zip"):
+                if depth >= 2:
+                    skipped.append(name + "(嵌套太深)")
+                    continue
+                try:
+                    inner = _read_zip(zf.read(info), depth + 1)
+                except IngestError as e:
+                    skipped.append("%s(%s)" % (name, e))
+                    continue
+                base = name[:-4] + "/"
+                for sh in inner:
+                    sh.path = base + sh.path
+                out.extend(inner)
                 continue
             if not name.lower().endswith(DATA_EXT):
                 skipped.append(name)
