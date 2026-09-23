@@ -20,11 +20,31 @@ let afterJob = null;   // 作业真正跑完之后要做的事
 let lastRows = [];
 let sortState = { col: null, asc: false };
 
+/* ---------------- 访问口令 ----------------
+ * 内网共享部署时,非本机访问要带口令。第一次用 ?t=xxx 进来就存下来,
+ * 之后包装 window.fetch 自动给每个请求加头,其余代码不用改。
+ */
+(function () {
+  try {
+    const t = new URL(location.href).searchParams.get('t');
+    if (t) localStorage.setItem('hsd_token', t);
+  } catch (e) { /* 隐私模式下 localStorage 可能抛异常,忽略即可 */ }
+})();
+const _rawFetch = window.fetch.bind(window);
+function apiFetch(url, opts) {
+  opts = opts || {};
+  let tok = '';
+  try { tok = localStorage.getItem('hsd_token') || ''; } catch (e) { }
+  if (tok) opts.headers = Object.assign({}, opts.headers || {}, { 'X-Access-Token': tok });
+  return _rawFetch(url, opts);
+}
+window.fetch = apiFetch;
+
 /* ---------------- 标签页 ---------------- */
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['ideas', 'volume', 'sop', 'ranks', 'learn', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['ideas', 'volume', 'sop', 'ranks', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
   };
 });
 

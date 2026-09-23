@@ -32,6 +32,19 @@ feishu:
   app_id: ""               # (FEISHU_APP_ID)
   app_secret: ""           # (FEISHU_APP_SECRET)
   receive_id: ""           # 接收消息的 open_id
+  tenant_url: ""           # 你们飞书租户的地址，如 https://your-company.feishu.cn
+                           # 只用来拼生成文档的链接；留空会退回通用域名
+
+# ---------- 社媒周报(第 5 期启用)----------
+# 周报生成后可以直接建成飞书云文档。留空则只在本地导出 markdown。
+social:
+  # 建好的周报放进哪个云盘文件夹(文件夹链接末段的 token)。留空则放个人空间根目录。
+  folder_token: ""
+  # 建好后给谁加编辑权(open_id)。注意 open_id 按应用隔离,要用上面这个 app 下的 id。
+  owner_open_id: ""
+  # 文档标题模板。可用 {client} {label} {start} {end}
+  # 日期已格式化成 2026.09.13 / 09.20，直接拼即可
+  title: "{client} {label}运营周报 {start}-{end}"
 
 # ---------- 本地路径 ----------
 paths:
@@ -96,6 +109,12 @@ ranks:
 
 # ---------- 服务 ----------
 server:
-  host: "127.0.0.1"        # 只监听本机,别改成 0.0.0.0
+  host: "127.0.0.1"        # 只给自己用就保持这个
+                           # 内网共享给全组用:改成 "0.0.0.0",并且**必须**填下面的口令
   port: 8790
+  # 非本机访问时要求的口令。host 不是 127.0.0.1 而这里为空,程序会拒绝启动 ——
+  # 因为本程序持有 Google Ads / DataForSEO / DeepSeek / 飞书 凭据,
+  # 其中排名查询和 AI 调用是花钱的,裸奔等于把账单交给整个内网。
+  # 随便生成一串:python -c "import secrets;print(secrets.token_urlsafe(24))"
+  access_token: ""
   open_browser: true

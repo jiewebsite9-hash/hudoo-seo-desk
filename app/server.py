@@ -4,6 +4,7 @@
 前端是普通网页,后端是标准库 http.server —— 零额外依赖,打包体积小,
 和 rank-tracker 一脉相承。
 """
+import hmac
 import json
 import mimetypes
 import re
@@ -19,6 +20,23 @@ from app.modules.keywords import gkp
 
 VERSION = "0.1.0"
 REPO = "jiewebsite9-hash/hudoo-seo-desk"
+
+
+def _disposition(name):
+    """拼 Content-Disposition。
+
+    **文件名必须百分号编码。** HTTP 头按 latin-1 编码,直接塞中文会在
+    send_header 里抛 UnicodeEncodeError —— 表现不是报错页,而是**连接被直接掐断**
+    (客户端看到 RemoteDisconnected / 「下载失败」),很难猜到是文件名的问题。
+    本程序的产出大量是中文名(周报_*.md、SOP工作簿_*.xlsx、剔除清单_*.xlsx),
+    所以这里必须处理。
+
+    同时给一个纯 ASCII 的 filename= 兜底,老客户端不认 filename* 时还能存下来。
+    """
+    ascii_name = name.encode("ascii", "ignore").decode("ascii").strip(" .") or "download"
+    ascii_name = ascii_name.replace('"', "").replace("\\", "")
+    return ('attachment; filename="%s"; filename*=UTF-8\'\'%s'
+            % (ascii_name, quote(name, safe="")))
 
 
 def web_dir():
@@ -53,8 +71,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         if download_name:
-            self.send_header("Content-Disposition",
-                             "attachment; filename*=UTF-8''" + download_name)
+            self.send_header("Content-Disposition", _disposition(download_name))
         self.end_headers()
         self.wfile.write(data)
 
@@ -67,16 +84,48 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+
+    # ---------------------------------------------------------- 访问控制
+    def _allowed(self):
+        """本机随便访问;**非本机必须带口令**。
+
+        这个程序手上有 Google Ads、DataForSEO、DeepSeek、飞书四套凭据,
+        其中排名查询和 LLM 调用是**花钱**的。绑到 0.0.0.0 供全组用的时候,
+        没有这道门就等于把公司的账单和客户数据交给整个内网。
+
+        口令从 config 的 server.access_token 读;X-Access-Token 头或 ?t= 都认
+        (界面把口令存在 localStorage,之后每个请求自动带头)。
+        """
+        host = (self.client_address or ["", 0])[0]
+        if host in ("127.0.0.1", "::1", "localhost"):
+            return True
+        want = str(config.get("server.access_token", "") or "")
+        if not want:
+            return False
+        got = (self.headers.get("X-Access-Token")
+               or parse_qs(urlparse(self.path).query).get("t", [""])[0] or "")
+        # 逐字符等价比较,不要用 == 短路(时序侧信道)
+        return hmac.compare_digest(str(got), want)
+
+    def _deny(self):
+        return self._json({"error": "需要访问口令。请向管理员要访问链接"
+                                    "(形如 http://内网IP:8790/?t=口令)。"}, 403)
+
     # ---------------------------------------------------------- GET
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         p = u.path
 
+        if not self._allowed():
+            return self._deny()
+
         if p in ("/", "/index.html"):
             return self._file(web_dir() / "index.html")
         if p == "/app.js":
             return self._file(web_dir() / "app.js")
+        if p == "/social.js":
+            return self._file(web_dir() / "social.js")
 
         if p == "/api/status":
             st = config.status()
@@ -97,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
                              "spreadsheetml.sheet")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Content-Disposition",
-                             "attachment; filename*=UTF-8''" + quote(name))
+                             _disposition(name))
             self.end_headers()
             return self.wfile.write(data)
 
@@ -180,14 +229,56 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"name": name, "count": len(rows), "note": note,
                            "rows": rows[:20000]})
 
+    def _social_upload(self):
+        """运营专员上传的后台导出包(zip 或单个文件)。
+
+        解析 + 算指标 + 口径体检,**不调 AI**,所以很快,界面可以先看预览再决定出稿。
+        解析结果缓存在服务端,出稿时按 upload_id 取,免得把几十张表回传给浏览器再传回来。
+        """
+        n = int(self.headers.get("Content-Length") or 0)
+        if not n:
+            return self._json({"error": "没收到文件内容"}, 400)
+        if n > 60 * 1024 * 1024:
+            return self._json({"error": "整包超过 60MB"}, 400)
+        raw = self.rfile.read(n)
+        name = unquote(self.headers.get("X-Filename") or "上传.zip")
+
+        from app.modules.social import report as social
+        lines = []
+        try:
+            analysis = social.analyze(raw, name, log=lines.append)
+        except Exception as e:
+            return self._json({"error": "%s: %s" % (type(e).__name__, e)}, 400)
+
+        uid = social_cache.put(analysis)
+        clients = []
+        for c in social.clients_of(analysis):
+            plats = [{"platform": k[1],
+                      "cn": social.platforms.PLATFORM_CN[k[1]],
+                      "start": social.metrics.period(analysis["bundles"][k])[0],
+                      "end": social.metrics.period(analysis["bundles"][k])[1],
+                      "posts": analysis["totals"][k].get("posts", 0)}
+                     for k in analysis["bundles"] if k[0] == c]
+            clients.append({"client": c, "platforms": plats})
+        return self._json({"upload_id": uid, "clients": clients,
+                           "issues": analysis["issues"], "log": lines,
+                           "feishu_ready": social_feishu_ready()})
+
     # ---------------------------------------------------------- POST
     def do_POST(self):
         p = urlparse(self.path).path
+
+        if not self._allowed():
+            return self._deny()
 
         # 必须在 _body() 之前 —— 文件上传的请求体是二进制,
         # 一旦被 _body() 按 JSON 读掉,这里再读 Content-Length 就会永久阻塞。
         if p == "/api/parse-file":
             return self._parse_file()
+
+        # 同理,社媒数据包也是二进制上传,必须排在 _body() 之前
+        if p == "/api/social/upload":
+            return self._social_upload()
 
         b = self._body()
 
@@ -246,6 +337,26 @@ class Handler(BaseHTTPRequestHandler):
                         "saved": saved}
 
             return self._json({"job": jobs.start("从客户资料产出清单", run).id})
+
+        if p == "/api/social/generate":
+            from app.modules.social import report as social
+            analysis = social_cache.get(b.get("upload_id"))
+            if not analysis:
+                return self._json({"error": "上传记录已过期，请重新上传数据包"}, 400)
+            client = (b.get("client") or "").strip()
+            if client not in social.clients_of(analysis):
+                return self._json({"error": "没有这个客户：%s" % client}, 400)
+            use_ai = b.get("use_ai", True)
+            push = bool(b.get("push_feishu"))
+
+            def run(j):
+                return social_generate(j, analysis, client, use_ai, push)
+
+            return self._json({"job": jobs.start("出周报 · " + client, run).id})
+
+        if p == "/api/social/history":
+            from app.modules.social import store
+            return self._json({"rows": store.history(b.get("client"), b.get("platform"))})
 
         if p == "/api/llm/check":
             from app.modules.llm import client as llm
@@ -522,6 +633,96 @@ def _lines(text):
     return [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
 
 
+
+# ---------------------------------------------------------------- 社媒周报
+
+class _UploadCache(object):
+    """上传解析结果的短期缓存。
+
+    只留最近几次 —— 这些对象里有客户的全部明细数据,没必要长期驻留内存;
+    共享部署时也避免几个专员同时传大包把内存吃光。
+    """
+
+    LIMIT = 8
+
+    def __init__(self):
+        self._d = {}
+        self._order = []
+        self._lock = threading.Lock()
+
+    def put(self, obj):
+        import uuid
+        uid = uuid.uuid4().hex[:12]
+        with self._lock:
+            self._d[uid] = obj
+            self._order.append(uid)
+            while len(self._order) > self.LIMIT:
+                self._d.pop(self._order.pop(0), None)
+        return uid
+
+    def get(self, uid):
+        with self._lock:
+            return self._d.get(uid or "")
+
+
+social_cache = _UploadCache()
+
+
+def social_feishu_ready():
+    from app.modules.social import feishu_docs
+    return feishu_docs.configured()
+
+
+def social_generate(job, analysis, client, use_ai, push):
+    """出一份客户周报,落盘,按需建飞书文档,最后存档。"""
+    from app.modules.social import feishu_docs, report as social
+
+    res = social.generate(client, analysis, log=job.log, use_ai=use_ai)
+    facts = res["facts"]
+
+    stamp = "%s-%s" % ((facts["period"]["start"] or "").replace("-", ""),
+                       (facts["period"]["end"] or "").replace("-", ""))
+    fname = "周报_%s_%s.md" % (client, stamp)
+    path = config.out_dir() / fname
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(res["markdown"], encoding="utf-8")
+    job.log("已导出 %s" % fname)
+
+    doc = None
+    if push:
+        # 标题里的日期用 2026.09.13 这种写法。直接拿 ISO 日期拼会得到
+        # 「2026-09-13-2026-09-20」,一串横杠根本断不开句。
+        def dot(d, short=False):
+            if not d:
+                return "—"
+            return d[5:].replace("-", ".") if short else d.replace("-", ".")
+        title = str(config.get("social.title",
+                               "{client} {label}运营周报 {start}-{end}")).format(
+            client=client, label=facts["platform_label"],
+            start=dot(facts["period"]["start"]), end=dot(facts["period"]["end"], True))
+        folder = config.get("social.folder_token") or None
+        owner = config.get("social.owner_open_id") or None
+        job.log("飞书目标：文件夹 %s ／ 编辑权给 %s"
+                % (folder or "个人空间根目录", owner or "(未配置，不加)"))
+        try:
+            doc = feishu_docs.create(res["markdown"], title, folder_token=folder,
+                                     owner_open_id=owner, log=job.log)
+        except Exception as e:
+            # 飞书失败不该让整个作业白跑 —— markdown 已经落盘了
+            job.log("建飞书文档失败(%s: %s)；markdown 已导出，可手动上传。"
+                    % (type(e).__name__, e))
+
+    # **出稿成功后才存档**,避免半截数据污染下期的环比基线
+    social.archive(client, analysis)
+    job.log("本期汇总已存档，下期起自动带出环比")
+
+    blocks = [i for i in facts["issues"] if i["level"] == "block"]
+    return {"client": client, "file": fname, "doc": doc,
+            "markdown": res["markdown"][:4000],
+            "blockers": blocks, "ai": res["ai"],
+            "period": facts["period"]}
+
+
 def _finish(job, rows, prefix, to_usd=False, rate=None):
     """统一收尾:按需换算币种、落 CSV,回传前 200 行给界面预览。"""
     if not rows:
@@ -551,7 +752,26 @@ def serve():
         print("填好里面的凭据再用,界面「设置」页有说明。\n")
     host = config.get("server.host", "127.0.0.1")
     port = int(config.get("server.port", 8790))
-    httpd = ThreadingHTTPServer((host, port), Handler)
+
+    # 绑到非本机地址 = 全组能访问 = 谁都能用你的 Google Ads / DataForSEO / DeepSeek 额度。
+    # 没设口令就不让起,免得有人图省事绑了 0.0.0.0 就忘了。
+    token_set = str(config.get("server.access_token", "") or "").strip()
+    if host not in ("127.0.0.1", "localhost", "::1") and not token_set:
+        print("[中断] server.host 设成了 %s(非本机),但 server.access_token 是空的。" % host)
+        print("       这个程序持有会花钱的凭据,共享部署必须设访问口令。")
+        print("       在 %s 里填 server.access_token,或把 host 改回 127.0.0.1。"
+              % config.LOCAL)
+        return 2
+    # 端口被占时要明确报出来。默认行为是抛 OSError 然后进程静默退出,
+    # 而旧实例还在端口上正常应答 —— 表现就是"改了代码重启了却完全没生效",
+    # 极难察觉(实测为此白跑了三轮)。
+    try:
+        httpd = ThreadingHTTPServer((host, port), Handler)
+    except OSError as e:
+        print("[中断] 端口 %d 起不来:%s" % (port, e))
+        print("       多半是上一个实例还在跑。先把它关掉(或改 server.port),再启动。")
+        print("       Windows 查占用:netstat -ano | findstr :%d" % port)
+        return 2
     url = "http://%s:%d" % (host, port)
     print("互旦 SEO 工作台 v%s" % VERSION)
     print("控制台:%s" % url)

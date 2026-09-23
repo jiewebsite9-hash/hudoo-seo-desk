@@ -3,3 +3,4 @@ PyYAML>=6.0
 anthropic>=1.0.0
 openpyxl>=3.1
 openai>=2.0
+xlrd>=2.0          # LinkedIn 导出是老式 OLE2 .xls，openpyxl 不认

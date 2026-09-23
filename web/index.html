@@ -61,9 +61,23 @@ button.go{background:var(--accent);color:#fff;border:0;border-radius:7px;padding
 button.go:disabled{background:#9aa6b8;cursor:not-allowed}
 button.ghost{background:#fff;border:1px solid var(--line);border-radius:7px;padding:8px 14px;
   font:inherit;cursor:pointer}
-#log{background:#10151c;color:#c8d3e0;font-family:var(--mono);font-size:12.5px;
+#log,.log{background:#10151c;color:#c8d3e0;font-family:var(--mono);font-size:12.5px;
   padding:12px 14px;border-radius:8px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none}
-#log.show{display:block}
+#log.show,.log.show{display:block}
+/* ---- 社媒周报 ---- */
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:26px 18px;text-align:center;
+  background:#fafbfc;transition:background .12s,border-color .12s}
+.drop.over{border-color:#4734F6;background:#f2f0ff}
+.drop p{margin:4px 0}
+#soc-issues td{white-space:normal;vertical-align:top;max-width:340px}
+#soc-issues tr.lv-block td:first-child{color:#c0392b;font-weight:650}
+#soc-issues tr.lv-warn td:first-child{color:#b7791f}
+#soc-issues tr.lv-info td:first-child{color:var(--dim)}
+#soc-clients .kv{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:8px 0}
+#soc-clients ul{margin:6px 0 10px;padding-left:18px;color:var(--dim);font-size:13px}
+#soc-docs details pre{background:#10151c;color:#c8d3e0;font-family:var(--mono);font-size:12px;
+  padding:12px;border-radius:8px;max-height:320px;overflow:auto;white-space:pre-wrap}
+#soc-docs h3{margin-top:18px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 th{background:#fafbfc;font-weight:650;font-size:11.5px;letter-spacing:.03em;color:var(--dim);
@@ -98,6 +112,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
   <button data-tab="sop">SOP 总表</button>
   <button data-tab="ranks">排名监控</button>
   <button data-tab="learn">学清单</button>
+  <button data-tab="social">社媒周报</button>
   <button data-tab="setup">设置</button>
 </nav>
 
@@ -296,6 +311,44 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
   </section>
 
   <!-- ============ 设置 ============ -->
+
+  <section id="tab-social" hidden>
+    <div class="card">
+      <h2>社媒客户周报</h2>
+      <p class="hint">
+        把各平台后台导出的数据打成一个压缩包上传，按 <b>客户名 / 平台名 / 导出文件</b> 分目录。
+        平台名用 Facebook、Instagram、YouTube、LinkedIn、TikTok。
+        Mac 打的包也能认（文件名乱码会自动还原）。
+      </p>
+      <div id="soc-drop" class="drop">
+        <input type="file" id="soc-file" accept=".zip,.csv,.tsv,.txt,.xlsx,.xlsm,.xls" hidden>
+        <p><b>把数据包拖到这里</b>，或 <button class="ghost" id="soc-pick">选择文件</button></p>
+        <p class="hint" id="soc-name">支持 .zip，也可以单独传一个 csv / xls / xlsx</p>
+      </div>
+      <pre id="soc-log" class="log"></pre>
+    </div>
+
+    <div class="card" id="soc-result" hidden>
+      <h2>识别结果</h2>
+      <div id="soc-clients"></div>
+      <h3>口径体检</h3>
+      <p class="hint">
+        标「必须处理」的问题会直接影响对外交付，周报里会写进「内部核对」块。
+      </p>
+      <div class="tblwrap"><table id="soc-issues"></table></div>
+      <div class="row">
+        <label><input type="checkbox" id="soc-ai" checked> 用 AI 写文字段落（数字不经过 AI）</label>
+        <label><input type="checkbox" id="soc-push"> 同时建成飞书文档</label>
+      </div>
+      <p class="hint" id="soc-feishu-hint"></p>
+    </div>
+
+    <div class="card" id="soc-out" hidden>
+      <h2>出稿结果</h2>
+      <div id="soc-docs"></div>
+    </div>
+  </section>
+
   <section id="tab-setup" hidden>
     <div class="card">
       <h2>连接状态</h2>
@@ -335,5 +388,6 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
 </main>
 
 <script src="/app.js"></script>
+<script src="/social.js"></script>
 </body>
 </html>
