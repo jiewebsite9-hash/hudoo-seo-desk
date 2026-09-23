@@ -44,7 +44,7 @@ window.fetch = apiFetch;
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['ideas', 'volume', 'sop', 'ranks', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['sop', 'ranks', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
   };
 });
 
@@ -67,7 +67,7 @@ async function loadStatus() {
     `<div>导出目录</div><div>${s.out_dir}</div>` +
     `<div>skills 目录</div><div>${s.skills_dir}${(s.skills_found||[]).length ? '' : ' <span style="color:var(--warn)">（这个目录下没找到 skill）</span>'}</div>`;
   const d = s.defaults || {};
-  if (d.min_volume != null) $('i-min').value = d.min_volume;
+  if (d.min_volume != null) $('s-min').value = d.min_volume;
   if (d.usd_rate != null) { $('s-rate').value = d.usd_rate; }
   return d;
 }
@@ -357,44 +357,16 @@ class Targeting {
 let T = {};
 
 /* ---------------- 按钮 ---------------- */
-/* 拓词方式三选一。以前种子词和网址两个框并列，标签写「填了网址就不用种子词」，
-   但后端其实是两个都跑 —— 说明和行为对不上，所以改成显式三选一。 */
-let ideaMode = 'seed';
-document.querySelectorAll('#i-mode button').forEach(b => {
-  b.onclick = () => {
-    ideaMode = b.dataset.m;
-    document.querySelectorAll('#i-mode button').forEach(x => x.classList.toggle('on', x === b));
-    ['seed', 'site', 'page'].forEach(m => { $('i-box-' + m).hidden = (m !== ideaMode); });
+/* 上一轮拓出来的词。DeepSeek 生成清单时拿它当样本,能当场算出每条模式会杀掉谁。
+   没跑过就退回用种子词 + 客户原始词 —— 样本越像真实候选池,清单越准。 */
+let LAST_WORDS = [];
+$('run-sop').onclick = () => {
+  afterJob = (st) => {
+    const pv = (st.result || {}).preview || [];
+    LAST_WORDS = pv.map(r => r['关键词']).filter(Boolean);
+    aiNote();
   };
-});
-
-$('run-ideas').onclick = () => {
-  const payload = {
-    geos: T.i.value,
-    lang: $('i-lang').value,
-    min_volume: +$('i-min').value || 0,
-    usd: $('i-usd').checked,
-  };
-  if (ideaMode === 'seed') {
-    payload.seeds = $('seeds').value;
-    if (!payload.seeds.trim()) return showErr('种子词是空的。');
-  } else {
-    const el = ideaMode === 'site' ? $('i-url-site') : $('i-url-page');
-    payload.url = el.value.trim();
-    payload.site = (ideaMode === 'site');      // 整站 vs 单页 —— 以前这个参数前端从来没传过
-    if (!payload.url) return showErr('网址是空的。');
-  }
-  run('/api/keywords/ideas', payload, '拓词中…');
-};
-
-$('run-volume').onclick = () => run('/api/keywords/volume', {
-  keywords: $('words').value,
-  geos: T.v.value,
-  lang: $('v-lang').value,
-  usd: $('v-usd').checked,
-}, '取数中…');
-
-$('run-sop').onclick = () => run('/api/keywords/sop', {
+  run('/api/keywords/sop', {
   seeds: $('s-seeds').value,
   sites: $('s-sites').value,
   customer: $('s-customer').value,
@@ -404,7 +376,8 @@ $('run-sop').onclick = () => run('/api/keywords/sop', {
   lang: $('s-lang').value,
   min_volume: +$('s-min').value || 0,
   usd_rate: +$('s-rate').value || 0,
-}, '生成 SOP 总表中…');
+  }, '拓词中…');
+};
 
 
 /* ---------------- 清单库 ---------------- */
@@ -412,6 +385,18 @@ async function loadLib() {
   const box = $('lib');
   if (!box) return;
   const { lists } = await fetch('/api/lists').then(r => r.json());
+  // 拓词页的「清单库」下拉:选中就把剔除模式填进去,不用再跳页
+  const sel = $('s-lib');
+  if (sel) {
+    sel.innerHTML = '<option value="">（不带入）</option>' +
+      (lists || []).map(l => `<option value="${l.file}">${l.name}　${l.patterns} 条</option>`).join('');
+    sel.onchange = async () => {
+      if (!sel.value) return;
+      const d = await fetch('/api/lists?load=' + encodeURIComponent(sel.value)).then(r => r.json());
+      if (d.error) return showErr(d.error);
+      $('s-exclude').value = (d.patterns || []).join(String.fromCharCode(10));
+    };
+  }
   if (!lists || !lists.length) {
     box.innerHTML = '<span class="hint">还没有学过的清单。用上面的功能学一份。</span>';
     return;
@@ -452,6 +437,37 @@ $('run-derive').onclick = () => {
     save_as: $('d-name').value,
   }, '从客户资料生成清单…');
 };
+/* 拓词页里的 AI 入口。和「学清单」页那个是同一个接口,区别只在样本来源:
+   这里优先用上一轮拓出来的词。产出直接填进两份清单框,永不自动入库(除非填了名字)。 */
+function aiNote() {
+  const el = $('s-ai-note');
+  if (!el) return;
+  el.textContent = LAST_WORDS.length
+    ? '样本：上一轮拓出的 ' + LAST_WORDS.length + ' 个词'
+    : '样本：还没跑过拓词，会用种子词 + 客户原始词';
+}
+if ($('run-derive-inline')) $('run-derive-inline').onclick = () => {
+  if (!$('s-mat').value.trim()) return showErr('客户资料是空的。');
+  const sample = LAST_WORDS.length ? LAST_WORDS.join(String.fromCharCode(10))
+    : $('s-seeds').value + String.fromCharCode(10) + $('s-customer').value;
+  afterJob = (st) => {
+    const L = (st.result || {}).lists;
+    if (!L) return;
+    $('s-exclude').value = (L.exclude || []).join(String.fromCharCode(10));
+    $('s-mixed').value = (L.mixed || []).join(String.fromCharCode(10));
+    // 策略词是「客户确实做、但搜索量低」的词 —— 追加到客户原始词,别覆盖人家填的
+    if ((L.strategy || []).length) {
+      const cur = $('s-customer').value.trim();
+      $('s-customer').value = (cur ? cur + String.fromCharCode(10) : '') + L.strategy.join(String.fromCharCode(10));
+    }
+    loadLib();
+  };
+  run('/api/keywords/derive', {
+    material: $('s-mat').value, sample: sample,
+    extra: $('s-dextra').value, save_as: $('s-dname').value,
+  }, 'DeepSeek 生成清单中…');
+};
+
 $('run-learn').onclick = () => {
   afterJob = () => loadLib();        // 学完再刷新库,不能用 run() 的 then(那时作业还没跑完)
   run('/api/keywords/learn', {
@@ -691,16 +707,15 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
     fetch('/api/options').then(r => r.json()),
   ]);
   document.querySelectorAll('textarea').forEach(attachUploader);
-  T.i = new Targeting('i', opts);
-  T.v = new Targeting('v', opts);
   T.s = new Targeting('s', opts);
   loadLib();
   loadProjects(opts);
   skillNote();
   loadBalance();
   setKwSrc('empty');
+  aiNote();
   const init = (d.geo || 'US').toUpperCase();
-  [T.i, T.v, T.s].forEach(t => {
+  [T.s].forEach(t => {
     t.add(init);
     if (d.lang) { t.lang.value = d.lang; t.manual = false; t.syncLang(); }
     t.draw();

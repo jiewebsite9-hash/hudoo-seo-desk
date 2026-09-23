@@ -159,10 +159,14 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
 
     # ---- 3. 竞品站拓展 ----
     for site in sites:
-        host = re.sub(r"^https?://", "", site).strip("/").split("/")[0]
-        label = "GKP以网站拓展(%s)" % host
+        path = re.sub(r"^https?://", "", site).strip("/")
+        host = path.split("/")[0]
+        # 填首页 = 扒整站(site_seed);填到具体页面 = 只看那一页(url_seed)。
+        # 靠有没有路径自动判,不用再让人选「整站 / 单页」。
+        whole = "/" not in path
+        label = "GKP以网站拓展(%s%s)" % (host, "" if whole else " 单页")
         try:
-            rows = gkp.ideas(url=site, site=True, geos=[market], lang=lang,
+            rows = gkp.ideas(url=site, site=whole, geos=[market], lang=lang,
                              min_volume=0, job=job)
         except Exception as e:
             log("  %s 失败,跳过:%s" % (host, str(e)[:80]))

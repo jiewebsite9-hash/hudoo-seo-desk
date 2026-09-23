@@ -341,21 +341,6 @@ class Handler(BaseHTTPRequestHandler):
             job = jobs.start("自检 Google Ads 连接", lambda j: gkp.check(j))
             return self._json({"job": job.id})
 
-        if p == "/api/keywords/ideas":
-            geos = [g for g in (b.get("geos") or []) if g]
-            seeds = gkp.parse_keyword_text(b.get("seeds"))
-            url = (b.get("url") or "").strip() or None
-            site = bool(b.get("site"))
-            lang = b.get("lang") or "en"
-            minv = int(b.get("min_volume") or 0)
-
-            def run(j):
-                rows = gkp.ideas(seeds=seeds, url=url, site=site, geos=geos,
-                                 lang=lang, min_volume=minv, job=j)
-                return _finish(j, rows, "ideas", bool(b.get("usd")), b.get("usd_rate"))
-
-            return self._json({"job": jobs.start("拓词", run).id})
-
         if p == "/api/keywords/derive":
             from app.modules.keywords import derive, learn
 
@@ -558,17 +543,6 @@ class Handler(BaseHTTPRequestHandler):
                         "truncated": len(rows) > 200, "stats": clean}
 
             return self._json({"job": jobs.start("生成 SOP 总表", run).id})
-
-        if p == "/api/keywords/volume":
-            geos = [g for g in (b.get("geos") or []) if g]
-            words = gkp.parse_keyword_text(b.get("keywords"))
-            lang = b.get("lang") or "en"
-
-            def run(j):
-                rows = gkp.volume(words, geos=geos, lang=lang, job=j)
-                return _finish(j, rows, "volume", bool(b.get("usd")), b.get("usd_rate"))
-
-            return self._json({"job": jobs.start("补搜索量", run).id})
 
         return self._json({"error": "没有这个接口"}, 404)
 
@@ -777,28 +751,6 @@ def social_generate(job, analysis, client, use_ai, push):
             "markdown": res["markdown"][:4000],
             "blockers": blocks, "ai": res["ai"],
             "period": facts["period"]}
-
-
-def _finish(job, rows, prefix, to_usd=False, rate=None):
-    """统一收尾:按需换算币种、落 CSV,回传前 200 行给界面预览。"""
-    if not rows:
-        job.log("没有拿到任何数据")
-        return {"count": 0, "preview": [], "csv": None}
-    rate = float(rate or config.get("defaults.usd_rate", 7.0))
-    raw_cur = rows[0].get("货币")
-    rows, cur = gkp.apply_currency(rows, to_usd, rate)
-    if to_usd and raw_cur != cur:
-        job.log("出价已按 1 USD = %.2f %s 换算,高价值阈值同步切到 USD 档" % (rate, raw_cur))
-    elif raw_cur != "USD":
-        job.log("出价单位是账号币种 %s(Google Ads 的出价跟查哪个市场无关)" % raw_cur)
-    path = gkp.save_csv(rows, prefix, cur)
-    job.log("已导出 %d 行 -> %s" % (len(rows), path.name))
-    cols = gkp.display_columns(cur)
-    keymap = dict(zip(gkp.DISPLAY_KEYS, cols))
-    preview = [{keymap[k]: r.get(k, "") for k in gkp.DISPLAY_KEYS} for r in rows[:200]]
-    return {"count": len(rows), "columns": cols, "currency": cur,
-            "preview": preview, "csv": path.name,
-            "truncated": len(rows) > 200}
 
 
 def serve():

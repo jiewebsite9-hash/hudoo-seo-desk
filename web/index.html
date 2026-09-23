@@ -98,6 +98,9 @@ code{background:#eef1f5;padding:1px 6px;border-radius:4px;font-family:var(--mono
 .kv{display:grid;grid-template-columns:200px 1fr;gap:6px 14px;font-size:13px}
 .kv div:nth-child(odd){color:var(--dim)}
 ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
+.sect{font-weight:600;color:var(--ink);margin:18px 0 8px}
+details.ai{border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin:4px 0 6px}
+details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -107,9 +110,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
 </header>
 
 <nav>
-  <button data-tab="ideas" class="active">拓词</button>
-  <button data-tab="volume">补搜索量</button>
-  <button data-tab="sop">SOP 总表</button>
+  <button data-tab="sop" class="active">拓词</button>
   <button data-tab="ranks">排名监控</button>
   <button data-tab="learn">学清单</button>
   <button data-tab="social">社媒周报</button>
@@ -119,98 +120,42 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
 <main>
   <div class="err" id="err"></div>
 
-  <!-- ============ 拓词 ============ -->
-  <section id="tab-ideas">
+<section id="tab-sop">
     <div class="card">
       <h2>拓词</h2>
-      <p class="hint"><b>这一页用来快速探一个来源有哪些词</b>，出的是原始候选池。要正式出交付词表（多来源合并、判意图/优先级/金矿、剔词、出工作簿），用「<b>SOP 总表</b>」那一页——它把这里的三种方式一次跑完。</p>
-
-      <label>从哪拓</label>
-      <div class="seg" id="i-mode">
-        <button class="on" data-m="seed">种子词</button>
-        <button data-m="site">竞品整站</button>
-        <button data-m="page">单个页面</button>
-      </div>
-
-      <div id="i-box-seed" style="margin-top:14px">
-        <label>种子词（一行一个）</label>
-        <textarea id="seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea>
-        <p class="hint" style="margin:6px 0 0">每个种子最多返回几百个词。超过 20 个会自动分批再去重，填多少都行。</p>
-      </div>
-
-      <div id="i-box-site" hidden style="margin-top:14px">
-        <label>竞品网址</label>
-        <input id="i-url-site" placeholder="https://competitor.com">
-        <p class="hint" style="margin:6px 0 0">扒<b>整个站</b>，拿到竞品在做的全部词。填首页即可，不用具体到栏目。</p>
-      </div>
-
-      <div id="i-box-page" hidden style="margin-top:14px">
-        <label>页面网址</label>
-        <input id="i-url-page" placeholder="https://competitor.com/products/conveyor-roller/">
-        <p class="hint" style="margin:6px 0 0">只看<b>这一个页面</b>的主题。适合针对某个栏目页或产品页找对标词。</p>
-      </div>
-
-      <div class="row" style="margin-top:14px">
-        <div style="flex:2.2">
-          <label>地区（必填，可加多个）</label>
-          <select id="i-geo"></select>
-          <div class="chips" id="i-chips"></div>
-        </div>
-        <div style="flex:1.3">
-          <label>语言 <span class="note" id="i-note"></span></label>
-          <select id="i-lang"></select>
-        </div>
-        <div><label>最低月均搜索量</label><input id="i-min" type="number" value="10"></div>
-        <div style="flex:0 0 auto;min-width:0"><label>出价单位</label><label style="display:flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap;padding-top:7px"><input type="checkbox" id="i-usd" style="width:auto">换算成 USD</label></div>
-      </div>
-      <button class="go" id="run-ideas">开始拓词</button>
-      <p class="hint" style="margin:12px 0 0">出来的 CSV 可以直接喂给「补搜索量」补数，或粘进「SOP 总表」的种子词框继续跑完整流程。</p>
-    </div>
-  </section>
-
-  <!-- ============ 补搜索量 ============ -->
-  <section id="tab-volume" hidden>
-    <div class="card">
-      <h2>补搜索量</h2>
-      <p class="hint">对应「获取搜索量和预测数据」。一次最多 1 万个词，是给已有词库补主口径数据最快的路子。可以直接粘 CSV，只取第一列。</p>
-      <label>关键词（一行一个）</label>
-      <textarea id="words" data-tpl="words" placeholder="conveyor rollers&#10;gravity roller conveyor"></textarea>
-      <div class="row" style="margin-top:12px">
-        <div style="flex:2.2">
-          <label>地区（必填，可加多个）</label>
-          <select id="v-geo"></select>
-          <div class="chips" id="v-chips"></div>
-        </div>
-        <div style="flex:1.3">
-          <label>语言 <span class="note" id="v-note"></span></label>
-          <select id="v-lang"></select>
-        </div>
-        <div style="flex:0 0 auto;min-width:0"><label>出价单位</label><label style="display:flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap;padding-top:7px"><input type="checkbox" id="v-usd" style="width:auto">换算成 USD</label></div>
-      </div>
-      <button class="go" id="run-volume">开始取数</button>
-    </div>
-  </section>
-
-  <!-- ============ SOP 总表 ============ -->
-  <section id="tab-sop" hidden>
-    <div class="card">
-      <h2>SOP 总表</h2>
-      <p class="hint">按「互旦关键词 SOP V2」的 20 列总表格式出数。<b>意图、优先级、金矿、搜索量区间、来源渠道</b>按口径规则自动判定；<b>客户级别、布局角色、目标URL、页面类型、页面状态、该页主词、备注</b>是人工判断列，留空等你填。会跑两轮取数（主市场 + 全球不限地区）。</p>
+      <p class="hint">数据<b>统一走 Google 关键词规划师</b>（Google Ads API），不再用 Semrush。三种词源可以叠加，合并去重后跑两轮取数（主市场 + 全球不限地区），按「互旦关键词 SOP V2」出 20 列总表。<b>意图、优先级、金矿、搜索量区间、来源渠道</b>按口径规则判定，零 AI、可回测；<b>布局角色、目标URL、页面类型、页面状态、该页主词、备注</b>是人工列，留空等你填。AI（DeepSeek）只做一件事：从客户资料生成筛词清单——产出是草稿，验过再用。</p>
+      <p class="sect">① 词从哪来（至少填一样，可叠加）</p>
       <div class="row">
-        <div><label>种子词（一行一个，走「GKP以关键字拓展」）</label>
+        <div><label>种子词（一行一个，「以关键字拓展」）</label>
           <textarea id="s-seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea></div>
-        <div><label>竞品网址（一行一个，走「GKP以网站拓展」）</label>
+        <div><label>竞品网址（一行一个，「以网站拓展」；填首页扒整站，填到具体页面只看那一页）</label>
           <textarea id="s-sites" data-tpl="sites" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
       </div>
       <div class="row">
-        <div><label>客户原始词（可选，支持 词⇥中文⇥级别）</label>
+        <div style="flex:2"><label>客户原始词（可选，支持 词⇥中文⇥级别；<b>只给这一项 = 不拓词、只补数据</b>）</label>
           <textarea id="s-customer" data-tpl="customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea></div>
+      </div>
+      <p class="sect">② 筛词清单（可选）　<span class="hint" style="font-weight:400">清单库：<select id="s-lib" style="width:auto;display:inline-block;padding:4px 8px"><option value="">（不带入）</option></select></span></p>
+      <div class="row">
         <div><label>混杂 / 泛词清单（命中的词最高只给 P1）</label>
           <textarea id="s-mixed" data-tpl="mixed" placeholder="roller manufacturer&#10;rubber roller*&#10;steel roller*"></textarea></div>
         <div><label>剔除清单（命中的词移入「剔除词」页）</label>
           <textarea id="s-exclude" data-tpl="exclude" placeholder="*conveyor belt*&#10;*conveyor system*&#10;*industrial automation*&#10;roller&#10;pulley"></textarea></div>
       </div>
       <p class="hint" style="margin:-4px 0 12px">两个清单同一套语法，<b>默认整词匹配</b>：<code>roller</code> 只命中 roller 本身（对应剔除规则①泛词），不会误伤 conveyor roller。要覆盖一整类词必须加星号包住：<code>*conveyor belt*</code> 才能剔掉 belt conveyor belt、conveyor conveyor belt 这些（对应规则④）；<code>rubber roller*</code> 是「以…开头」。</p>
+      <details class="ai" id="s-ai">
+        <summary>⚡ 用 DeepSeek 从客户资料生成上面两份清单</summary>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:2"><label>客户资料（启动会纪要 / 产品手册 / 做什么不做什么）</label>
+            <textarea id="s-mat" style="min-height:120px" placeholder="客户做输送滚筒，包括钢制滚筒、包胶滚筒、改向滚筒。&#10;不生产：电动滚筒、整机输送系统、输送带本身。&#10;启动会确认：托辊线客户未确认生产，暂不做。"></textarea></div>
+          <div><label>补充说明（可选）</label><input id="s-dextra" placeholder="例如：主做美国市场，只做 B2B 批量">
+            <label style="margin-top:10px">存进清单库（留空则只填不存）</label><input id="s-dname" placeholder="例如：某某设备行业"></div>
+        </div>
+        <button class="ghost" id="run-derive-inline" style="margin-top:8px">生成清单</button>
+        <span class="hint" id="s-ai-note" style="margin-left:10px"></span>
+        <p class="hint" style="margin:8px 0 0">产出的是<b>草稿</b>。先跑一轮拓词再生成，会拿上一轮的词当样本，当场算出每条模式会杀掉哪些词。</p>
+      </details>
+      <p class="sect">③ 参数</p>
       <div class="row">
         <div style="flex:2.2">
           <label>主市场（决定「{市场}月搜」那一列）</label>

@@ -172,6 +172,16 @@ def derive(material, sample_words=None, extra=None, job=None):
             "核心词大多是词组(%s…)而不是单个名词。**豁免层基本会失效** —— "
             "它靠 roller / pulley 这种短名词把误伤的词救回来,词组几乎救不到东西。"
             % "、".join(phrase_core[:3]))
+    # 混杂清单里的「裸核心词通配」必须拿掉:*roller* 进了 mixed = 几乎所有产品词
+    # 都被压到 P1,整张表的 P0 全没了。实测模型会把 core 原样再抄一遍进 mixed。
+    core_l = {c.lower() for c in res["core"]}
+    bad = [m for m in res["mixed"]
+           if m["pattern"].replace("*", "").strip().lower() in core_l]
+    if bad:
+        res["mixed"] = [m for m in res["mixed"] if m not in bad]
+        res["warnings"].append(
+            "混杂清单里有 %d 条是裸核心词的通配(%s),会把几乎所有产品词压到 P1,已自动拿掉。"
+            % (len(bad), "、".join(b["pattern"] for b in bad[:3])))
     for w in res["warnings"]:
         log("[当心] " + w)
 
