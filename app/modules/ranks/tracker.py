@@ -90,7 +90,7 @@ def estimate(n, depth=3, mode="standard"):
 
 
 def check(domain, keywords=None, gl=None, hl=None, device=None, depth=None,
-          mode="standard", only_failed=False, job=None):
+          mode="standard", only_failed=False, kw_source=None, job=None):
     log = job.log if job else (lambda m: None)
     proj = find_project(domain)
     host = norm_host(domain)
@@ -115,6 +115,9 @@ def check(domain, keywords=None, gl=None, hl=None, device=None, depth=None,
     if not words:
         raise RankError("没有要查的词 —— 选个项目,或者把词填进来。")
 
+    # 词表来源要落进日志 —— 事后查"这轮为什么少了 12 个词"全靠它
+    if kw_source and not only_failed:
+        log("词表来源:%s" % kw_source)
     eng = make_engine(gl, hl, device, depth, mode, log=log)
     log("域名 %s(归一化后 %s)| %d 个词 | 前 %d 名 | %s 模式 | 预估 $%.4f"
         % (domain, host, len(words), depth * 10, mode, eng.estimate(len(words))))

@@ -45,20 +45,62 @@ def token():
     return d["tenant_access_token"]
 
 
+# 这些 code 都是「机器人没被授权看这张表」,不是链接写错。
+# 分开说,因为两者的解法完全不同:前者要去飞书分享,后者要改链接。
+NO_PERM_CODES = {91403, 1770032, 99991672, 99991673}
+
+
+def _explain(code, body, status=None):
+    if code in NO_PERM_CODES:
+        return FeishuError(
+            "飞书拒绝访问(code %s)——这张表没有授权给机器人。"
+            "去飞书把这个文档或它的父文件夹分享给机器人应用,给「可编辑」。" % code)
+    if code in (1254004, 1254005, 1254043):
+        return FeishuError("飞书说找不到这张表或这个视图(code %s)——"
+                           "多半是链接里的 table/view 参数不对。" % code)
+    # token 不对时飞书把 msg 直接写成 NOTEXIST —— 链接贴错时最常见的一种。
+    # 注意这条走的是合法 JSON,不是非 JSON 响应,所以必须在这里判。
+    if "NOTEXIST" in str(body).upper():
+        return FeishuError(
+            "飞书找不到这个多维表格 —— 链接里的 base token 不对,或者这张表已经被删了。"
+            "确认链接形如 https://xxx.feishu.cn/base/<token>?table=<id>")
+    return FeishuError("飞书请求失败%s:%s"
+                       % (" HTTP %d" % status if status else "", body[:300]))
+
+
+def _call(req, timeout):
+    try:
+        d = json.load(urllib.request.urlopen(req, timeout=timeout))
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            # 多维表格 token 不对时飞书直接回一句裸文本 NOTEXIST,不是 JSON。
+            # 这是链接贴错时最常见的一种,单独说清楚。
+            if "NOTEXIST" in raw.upper():
+                raise FeishuError(
+                    "飞书找不到这个多维表格 —— 链接里的 base token 不对,"
+                    "或者这张表已经被删了。确认链接形如 "
+                    "https://xxx.feishu.cn/base/<token>?table=<id>")
+            raise FeishuError("飞书请求失败 HTTP %d:%s" % (e.code, raw[:300]))
+        raise _explain(body.get("code"), body.get("msg") or raw, e.code)
+    # HTTP 200 但 code 非 0 也是失败 —— 飞书很多错误是这么返回的
+    if isinstance(d, dict) and d.get("code") not in (0, None):
+        raise _explain(d.get("code"), d.get("msg") or str(d))
+    return d
+
+
 def _get(url, tok, timeout=60):
-    r = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
-    return json.load(urllib.request.urlopen(r, timeout=timeout))
+    return _call(urllib.request.Request(
+        url, headers={"Authorization": "Bearer " + tok}), timeout)
 
 
 def _post(url, tok, body, timeout=60):
-    r = urllib.request.Request(
+    return _call(urllib.request.Request(
         url, data=json.dumps(body).encode(),
-        headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
-    try:
-        return json.load(urllib.request.urlopen(r, timeout=timeout))
-    except urllib.error.HTTPError as e:
-        raise FeishuError("飞书请求失败 HTTP %d: %s"
-                          % (e.code, e.read().decode("utf-8", "replace")[:300]))
+        headers={"Authorization": "Bearer " + tok,
+                 "Content-Type": "application/json"}), timeout)
 
 
 # ---------------------------------------------------------------- 链接

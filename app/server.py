@@ -468,7 +468,8 @@ class Handler(BaseHTTPRequestHandler):
                     gl=b.get("gl"), hl=b.get("hl"), device=b.get("device"),
                     depth=int(b.get("depth") or 3),
                     mode=b.get("mode") or "standard",
-                    only_failed=bool(b.get("only_failed")), job=j)
+                    only_failed=bool(b.get("only_failed")),
+                    kw_source=b.get("kw_source"), job=j)
                 if b.get("writeback"):
                     try:
                         wb = tracker.writeback(b.get("domain") or "", job=j)

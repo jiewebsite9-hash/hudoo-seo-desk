@@ -233,13 +233,15 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
       <h2>排名检查</h2>
       <p class="hint">走 DataForSEO 的 Google 自然结果，无验证码、免代理。两种计费模式拿的是<b>同一份数据</b>，位次口径一致：<b>队列模式</b>约 $0.0015/词、批量下单十分钟量级；<b>实时模式</b>约 $0.005/词且逐词同步（11 秒/词），只在就查几个词时用。</p>
       <div class="row">
-        <div style="flex:1.4"><label>项目</label><select id="r-proj"></select></div>
-        <div style="flex:1.4"><label>域名（裸域名，别带 http:// 和尾斜杠）</label><input id="r-domain" placeholder="example.com"></div>
+        <div style="flex:1.2"><label>项目</label><select id="r-proj"></select></div>
+        <div style="flex:1.2"><label>域名（裸域名，别带 http:// 和尾斜杠）</label><input id="r-domain" placeholder="example.com"></div>
+        <div style="flex:2"><label>飞书词库链接　<span class="hint" style="font-weight:400">词的源头在这里</span></label>
+        <input id="r-feishu" placeholder="https://xxx.feishu.cn/base/xxx?table=xxx"></div>
         <div><label>地区</label><select id="r-gl"></select></div>
         <div><label>语言</label><select id="r-hl"></select></div>
       </div>
-      <label>关键词（一行一个）</label>
-      <textarea id="r-kw" data-tpl="words" placeholder="选了项目会自动带出该项目的词"></textarea>
+      <label>要查的词（一行一个，可临时增删）　<span id="r-src" style="font-weight:400"></span>　<a href="#" id="r-resync" style="font-weight:400;font-size:11px">重新从飞书拉</a></label>
+      <textarea id="r-kw" data-tpl="words" placeholder="粘飞书词库链接后点「同步飞书词库」，或者直接把词贴进来"></textarea>
       <div class="row" style="margin-top:12px">
         <div><label>设备</label><select id="r-dev"><option value="desktop">桌面</option><option value="mobile">移动</option></select></div>
         <div><label>查前几页</label><select id="r-depth"><option value="1">前 10 名</option><option value="2">前 20 名</option><option value="3" selected>前 30 名</option><option value="5">前 50 名</option><option value="10">前 100 名</option></select></div>
@@ -248,8 +250,6 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
         <div style="flex:1.6"><label>账户余额 <a href="#" id="r-bal-refresh" style="font-weight:400;font-size:11px">刷新</a></label><div id="r-bal" style="padding-top:8px;font-weight:600">—</div></div>
       </div>
       <div class="row" style="align-items:center;margin-bottom:14px">
-        <div style="flex:3"><label>飞书词库链接（留空则用项目配置里的）</label>
-        <input id="r-feishu" placeholder="https://xxx.feishu.cn/base/xxx?table=xxx"></div>
         <div><label>排名列名（留空取「当月N月排名」）</label><input id="r-field" placeholder="9月排名"></div>
       </div>
       <div class="row" style="margin-bottom:14px">

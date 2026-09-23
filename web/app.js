@@ -467,6 +467,27 @@ $('run-learn').onclick = () => {
 let rankUnit = { standard: 0.0015, live: 0.005 };
 
 let RANK_EST = 0;   // rankCost() 算出的本轮预估,确认框直接复用
+/* ---------------- 关键词来源 ----------------
+   词的源头是飞书词库。以前选项目填的是 config.local.yaml 里的手抄副本,
+   而真正花钱的那一步不区分两者 —— 忘了点同步就会拿上个月的词表去查、
+   花了钱、还把结果写回飞书表,全程零提示。
+   现在把来源一路带到扣费确认框。  */
+let KW = { src: 'empty', n: 0, at: null };
+const KW_LABEL = { feishu: '来自飞书词库', config: '来自配置文件（不是飞书）',
+                   manual: '手动填写', empty: '还没有词' };
+function setKwSrc(src) {
+  const n = $('r-kw').value.split(String.fromCharCode(10)).filter(x => x.trim()).length;
+  KW = { src: n ? src : 'empty', n: n, at: src === 'feishu' ? new Date() : KW.at };
+  const el = $('r-src');
+  if (!el) return;
+  const t = KW.at ? KW.at.toTimeString().slice(0, 5) : '';
+  let txt = KW_LABEL[KW.src] + (KW.n ? '　' + KW.n + ' 词' : '');
+  if (KW.src === 'feishu' && t) txt += '　' + t + ' 同步';
+  el.textContent = '· ' + txt;
+  // 配了飞书链接却没用飞书的词 —— 这正是会悄悄查错词表的那种情况
+  const stale = $('r-feishu').value.trim() && KW.src !== 'feishu' && KW.n;
+  el.style.color = stale ? 'var(--warn)' : 'var(--muted)';
+}
 function rankCost() {
   const n = $('r-kw').value.split(String.fromCharCode(10)).filter(x => x.trim()).length;
   const pages = +$('r-depth').value || 3;
@@ -494,7 +515,15 @@ async function loadProjects(opts) {
     const p = window.__projects[+sel.value];
     if (!p) return;
     $('r-domain').value = p.domain;
-    $('r-kw').value = (p.keywords || []).join(String.fromCharCode(10));
+    // 配了飞书词库就以飞书为准,config 里那份副本只在没配飞书时用 ——
+    // 两份都填会让人分不清手上这批词到底是哪来的
+    if (p.feishu_url) {
+      $('r-kw').value = '';
+      setKwSrc('empty');
+    } else {
+      $('r-kw').value = (p.keywords || []).join(String.fromCharCode(10));
+      setKwSrc('config');
+    }
     $('r-gl').value = (p.gl || 'US').toUpperCase();
     $('r-hl').value = p.hl || 'en';
     $('r-dev').value = p.device || 'desktop';
@@ -502,7 +531,10 @@ async function loadProjects(opts) {
     $('r-feishu').value = p.feishu_url || '';
     $('r-field').value = p.feishu_rank_field || '';
     rankCost();
+    if (p.feishu_url) syncFeishu();   // 选了项目就去飞书拿最新的,不用记得点按钮
   };
+  // 手改文本框,来源立刻变「手动」—— 不能让人以为手上这批还是飞书那份
+  $('r-kw').addEventListener('input', () => setKwSrc('manual'));
   ['r-kw', 'r-depth', 'r-mode'].forEach(id => {
     $(id).addEventListener('input', rankCost);
     $(id).addEventListener('change', rankCost);
@@ -518,6 +550,7 @@ function rankPayload(extra) {
     device: $('r-dev').value, depth: +$('r-depth').value || 3,
     mode: $('r-mode').value,
     writeback: $('r-wb').checked, push: $('r-push').checked,
+    kw_source: KW_LABEL[KW.src],   // 记进作业日志,事后能查这批词哪来的
   }, extra || {});
 }
 
@@ -559,7 +592,12 @@ $('run-ranks').onclick = () => {
     if (need > BAL.balance)
       tail += '\n\n⚠ 余额不够这一轮，会查到一半失败。';
   }
-  if (!confirm(`这一轮会真实扣费，预估 ${txt}。${tail}\n\n确定开始吗？`)) return;
+  // 把「这批词哪来的」摆进确认框。花钱那一刻才是最该看清楚的时候。
+  let srcLine = '\n\n词的来源：' + KW_LABEL[KW.src] + '（' + KW.n + ' 词）';
+  if ($('r-feishu').value.trim() && KW.src !== 'feishu')
+    srcLine += '\n⚠ 填了飞书词库链接，但这批词不是从飞书拉的。'
+             + '若飞书表改过，这一轮会查错词表，而且结果还会写回去。';
+  if (!confirm(`这一轮会真实扣费，预估 ${txt}。${srcLine}${tail}\n\n确定开始吗？`)) return;
   // 跑完刷一次余额:刚扣完费,这时候看最有意义,也顺带暴露这轮真花了多少
   afterJob = () => loadBalance(true);
   run('/api/ranks/check', rankPayload(), '排名检查中…');
@@ -572,14 +610,22 @@ $('run-ranks-failed').onclick = () => {
 };
 
 
-$('run-sync').onclick = () => {
-  afterJob = (s) => {                        // 同步完把词填进输入框
+function syncFeishu() {
+  afterJob = (s) => {
     const kws = (s.result || {}).keywords;
-    if (kws && kws.length) { $('r-kw').value = kws.join(String.fromCharCode(10)); rankCost(); }
+    if (kws && kws.length) {
+      $('r-kw').value = kws.join(String.fromCharCode(10));
+      setKwSrc('feishu');
+      rankCost();
+    }
+    // 拉失败就不动文本框,来源也不改 —— 宁可显示「还没有词」,
+    // 也不能让人以为手上这批是刚从飞书拿的
   };
   run('/api/ranks/sync', { domain: $('r-domain').value, url: $('r-feishu').value },
       '同步飞书词库…');
-};
+}
+$('run-sync').onclick = () => syncFeishu();
+if ($('r-resync')) $('r-resync').onclick = e => { e.preventDefault(); syncFeishu(); };
 
 $('run-wb').onclick = () => {
   if (!confirm('会把最近一轮的排名写进飞书表的排名列，覆盖原值。继续吗？')) return;
@@ -652,6 +698,7 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
   loadProjects(opts);
   skillNote();
   loadBalance();
+  setKwSrc('empty');
   const init = (d.geo || 'US').toUpperCase();
   [T.i, T.v, T.s].forEach(t => {
     t.add(init);
