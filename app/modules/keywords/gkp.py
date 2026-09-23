@@ -7,6 +7,7 @@
 
 地区必须显式传 —— API 不传不会默认中国,但会给全球汇总值,对外贸站同样没意义。
 """
+import re
 import csv
 from datetime import datetime
 
@@ -327,11 +328,20 @@ def _dedupe(words):
     return out
 
 
+# Word / 飞书 会把连字符自动替换成 ‐ ‑ – — 这些非 ASCII 字符,肉眼看不出来,
+# GKP 一律查不到(实测客户文件里 4 个词因此「无数据」)。
+_DASHES = re.compile("[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]")
+
+
+def norm_kw(w):
+    return _DASHES.sub("-", str(w)).replace("\u00a0", " ").strip()
+
+
 def parse_keyword_text(text):
     """界面文本框里一行一个词;也兼容直接粘 CSV(只取第一列)。"""
     out = []
     for line in str(text or "").splitlines():
-        w = line.split(",")[0].split("\t")[0].strip().strip('"')
+        w = norm_kw(line.split("\t")[0].split(",")[0].strip().strip('"'))
         if w:
             out.append(w)
     if out and out[0].lower() in ("keyword", "keywords", "关键词"):

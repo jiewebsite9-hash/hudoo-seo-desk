@@ -573,6 +573,30 @@ def parse_table_bytes(raw, filename=""):
     """
     low = filename.lower()
 
+    # ---- xls(老 Excel,OLE2)----
+    # 客户发来的词表十有八九是这个格式。按文件头判,不只看后缀 ——
+    # 有人会把 xls 改名成 xlsx,改名不改格式,openpyxl 一样打不开。
+    if low.endswith(".xls") or raw[:4] == b"\xd0\xcf\x11\xe0":
+        import xlrd
+        wb = xlrd.open_workbook(file_contents=raw)
+        sh = wb.sheet_by_index(0)
+        rows = []
+        for i in range(sh.nrows):
+            cells = []
+            for c in sh.row(i):
+                v = c.value
+                # 数字列 xlrd 一律给 float:序号 1 读成 1.0。下游剥序号只认 \d+,
+                # 1.0 会漏过去变成关键词 —— 整数值一律还原成 int。
+                if c.ctype == 2 and float(v).is_integer():
+                    v = int(v)
+                # 单元格内换行(Alt+Enter)必须压平:下游按行切,一个格子两行就变两个词
+                cells.append(str(v).replace("\r", "").replace("\n", "；").strip())
+            while cells and not cells[-1]:
+                cells.pop()
+            if cells and any(cells):
+                rows.append(cells)
+        return _strip_header(rows), "xls · 工作表「%s」" % sh.name
+
     # ---- xlsx ----
     if low.endswith((".xlsx", ".xlsm")):
         import io
@@ -581,7 +605,7 @@ def parse_table_bytes(raw, filename=""):
         ws = wb[wb.sheetnames[0]]
         rows = []
         for r in ws.iter_rows(values_only=True):
-            cells = ["" if c is None else str(c).strip() for c in r]
+            cells = ["" if c is None else str(c).replace("\r", "").replace("\n", "；").strip() for c in r]
             while cells and not cells[-1]:
                 cells.pop()
             if cells and any(cells):

@@ -123,7 +123,13 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
             continue
         # **不能过滤掉中间的空格子**:客户表里常有合并单元格(两行共用一个中文),
         # 传过来就是空串。一旦把空的丢掉,后面的「级别」会顶到「中文」的位置上。
-        parts = [x.strip() for x in re.split(r"	|,|，|\|", str(raw))]
+        raw = str(raw)
+        # 上传 / 粘贴的表格行一定带 Tab —— 有 Tab 就只按 Tab 切。按逗号也切的话,
+        # 中文列里的「槽滚，槽型滚筒」会被劈开,级别顶到中文的位置上(真实客户文件测出来的)。
+        if "\t" in raw:
+            parts = [x.strip() for x in raw.split("\t")]
+        else:
+            parts = [x.strip() for x in re.split(r",|，|\|", raw)]
         while parts and not parts[-1]:
             parts.pop()
         # 第一列常常是「序号」—— 纯数字且后面还有内容就丢掉,否则 1/2/3 会变成关键词
@@ -131,7 +137,7 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
             parts = parts[1:]
         if not parts or not parts[0]:
             continue
-        w = parts[0]
+        w = gkp.norm_kw(parts[0])
         customer[w.lower()] = w
         cust_meta[w.lower()] = {"中文": parts[1] if len(parts) > 1 else "",
                                 "级别": parts[2] if len(parts) > 2 else ""}
@@ -192,13 +198,19 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
     words = [pool[k] for k in pool]
     log("合并去重后共 %d 个词,开始补两轮搜索量" % len(words))
 
+    # GKP 返回的文本把连字符换成了空格:送 rubber-coated roller 回 rubber coated roller。
+    # 按原键查会落空、客户词被记成「无数据」(真实客户文件里 4 个词就是这么丢的)。
+    # 查数一律用「去连字符 + 压空格」的归一键;两种写法会拿到同一行数据,这是对的。
+    def gkey(k):
+        return re.sub(r"\s+", " ", str(k).lower().replace("-", " ")).strip()
+
     # ---- 4. 主市场月搜 ----
-    local = {r["关键词"].lower(): r for r in
+    local = {gkey(r["关键词"]): r for r in
              gkp.volume(words, geos=[market], lang=lang, job=job)}
     log("%s月搜:拿到 %d 行" % (market_cn, len(local)))
 
     # ---- 5. 全球月搜(不限地区)----
-    world = {r["关键词"].lower(): r for r in
+    world = {gkey(r["关键词"]): r for r in
              _volume_worldwide(words, lang=lang, job=job)}
     log("全球月搜:拿到 %d 行" % len(world))
 
@@ -228,7 +240,7 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
                     "剔除原因": reason})
 
     for k, kw in pool.items():
-        lr = local.get(k)
+        lr = local.get(gkey(k))
         if not lr:
             drop(kw, None, "GKP 无数据")
             continue
@@ -241,7 +253,7 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         if min_volume and lv < min_volume and k not in customer:
             drop(kw, lr, "%s月搜 < %d(剔除规则⑦)" % (market_cn, min_volume))
             continue
-        wr = world.get(k) or {}
+        wr = world.get(gkey(k)) or {}
         low = to_usd(lr["页首出价低"] or 0)
         high = to_usd(lr["页首出价高"] or 0)
         comp = lr["竞争程度"] or ""
@@ -288,8 +300,8 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
         % (stats["总词数"], len(cut), stats["P0"], stats["P1"], stats["P2"], stats["金矿"]))
     cut.sort(key=lambda r: -(r["{市场}月搜"] or 0))
     stats["_customer_meta"] = cust_meta
-    stats["_local"] = {k: local[k] for k in customer if k in local}
-    stats["_world"] = {k: world.get(k, {}) for k in customer}
+    stats["_local"] = {k: local[gkey(k)] for k in customer if gkey(k) in local}
+    stats["_world"] = {k: world.get(gkey(k), {}) for k in customer}
     stats["_to_usd_rate"] = rate if currency != "USD" else 1
     return header, out, cut, stats
 
