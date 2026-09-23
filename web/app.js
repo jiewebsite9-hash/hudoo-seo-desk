@@ -41,10 +41,19 @@ function apiFetch(url, opts) {
 window.fetch = apiFetch;
 
 /* ---------------- 标签页 ---------------- */
+/* 结果面板 #outbox 是全页共用的一块。记住它是哪一页跑出来的,切页时只在那一页显示 ——
+   不然拓词的总表会挂在社媒周报页底下。 */
+let outboxTab = null;
+function showOutbox() {
+  const a = document.querySelector('nav button.active');
+  outboxTab = a ? a.dataset.tab : null;
+  $('outbox').hidden = false;
+}
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
     ['sop', 'ranks', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    $('outbox').hidden = !(outboxTab && outboxTab === b.dataset.tab);
   };
 });
 
@@ -78,7 +87,7 @@ async function run(url, payload, title) {
   showErr('');
   const btns = document.querySelectorAll('button.go, button.ghost');
   btns.forEach(b => b.disabled = true);
-  $('outbox').hidden = false;
+  showOutbox();
   $('outtitle').textContent = title;
   $('log').textContent = '';
   $('log').classList.add('show');
@@ -688,7 +697,7 @@ $('run-ranks-view').onclick = async () => {
   const d = await fetch('/api/ranks/overview?domain=' + encodeURIComponent($('r-domain').value)).then(r => r.json());
   if (d.error) return showErr(d.error);
   if (!d.rows.length) return showErr('这个域名还没有任何检查记录。');
-  $('outbox').hidden = false;
+  showOutbox();
   $('outtitle').textContent = `最近一轮 —— ${d.domain}`;
   $('log').classList.remove('show');
   render({ count: d.rows.length, columns: ['关键词', '排名', '上轮', '变化', 'URL', '轮次'],
