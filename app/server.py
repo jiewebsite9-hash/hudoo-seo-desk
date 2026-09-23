@@ -150,6 +150,22 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(data)
 
+        if p == "/api/ranks/balance":
+            # 查余额本身免费,但别让刷一次页面就打一发 —— 缓存 60 秒。
+            # ?force=1 可以跳过缓存(刚充完值想立刻看到)。
+            import time as _t
+            from app.modules.ranks import engine
+            now = _t.time()
+            c = getattr(Handler, "_bal_cache", None)
+            if c and now - c[0] < 60 and not q.get("force"):
+                return self._json(dict(c[1], cached=True))
+            try:
+                d = engine.balance()
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
+            Handler._bal_cache = (now, d)
+            return self._json(dict(d, cached=False))
+
         if p == "/api/ranks/projects":
             from app.modules.ranks import tracker
             return self._json({"projects": tracker.projects(),

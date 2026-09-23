@@ -29,6 +29,46 @@ URL_READY = ROOT + "/tasks_ready"
 URL_GET = ROOT + "/task_get/advanced/"
 URL_LIVE = ROOT + "/live/advanced"
 
+URL_USER = "https://api.dataforseo.com/v3/appendix/user_data"
+
+
+def balance(login=None, password=None, timeout=20):
+    """账户余额。这个接口本身不扣费。
+
+    返回 {balance, total, spent, words_left}。words_left 按 standard 单价折算,
+    给的是"还够查多少个词"——比一个美元数直观得多。
+
+    **余额是整个账号一个数,不分人**:所有人的程序看到的是同一个值。
+    要知道是谁花的,看本地 journal 或回传表,余额答不了这个问题。
+    """
+    if login is None or password is None:
+        from app import config
+        login = login or config.get("dataforseo.login", "")
+        password = password or config.get("dataforseo.password", "")
+    if not login or not password:
+        raise RankError("没配 DataForSEO 账号密码,查不了余额。")
+    auth = "Basic " + base64.b64encode(
+        ("%s:%s" % (login, password)).encode()).decode()
+    req = urllib.request.Request(URL_USER, headers={"Authorization": auth})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RankError("查余额失败:HTTP %s(多半是账号密码不对)" % e.code)
+    except Exception as e:
+        raise RankError("查余额失败:%s" % e)
+    if d.get("status_code") != 20000:
+        raise RankError("查余额失败:%s" % d.get("status_message"))
+    try:
+        money = d["tasks"][0]["result"][0].get("money") or {}
+    except (KeyError, IndexError, TypeError):
+        raise RankError("查余额:返回结构不认识,接口可能改了。")
+    bal = float(money.get("balance") or 0)
+    total = float(money.get("total") or 0)
+    return {"balance": round(bal, 2), "total": round(total, 2),
+            "spent": round(total - bal, 2),
+            "words_left": int(bal / 0.0015) if bal > 0 else 0}
+
 GL_TO_LOCATION = {
     "us": "United States", "gb": "United Kingdom", "uk": "United Kingdom",
     "de": "Germany", "fr": "France", "it": "Italy", "es": "Spain",

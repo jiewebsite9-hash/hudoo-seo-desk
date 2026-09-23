@@ -466,12 +466,14 @@ $('run-learn').onclick = () => {
 /* ---------------- 排名监控 ---------------- */
 let rankUnit = { standard: 0.0015, live: 0.005 };
 
+let RANK_EST = 0;   // rankCost() 算出的本轮预估,确认框直接复用
 function rankCost() {
   const n = $('r-kw').value.split(String.fromCharCode(10)).filter(x => x.trim()).length;
   const pages = +$('r-depth').value || 3;
   const mode = $('r-mode').value;
   const base = mode === 'standard' ? 0.0006 : 0.002;
   const unit = base * (1 + 0.75 * (pages - 1));
+  RANK_EST = n * unit;
   $('r-cost').textContent = n ? `$${(unit * n).toFixed(4)}　(${n} 词 × $${unit.toFixed(4)})` : '—';
 }
 
@@ -519,14 +521,53 @@ function rankPayload(extra) {
   }, extra || {});
 }
 
+/* ---------------- DataForSEO 余额 ----------------
+   余额是整个账号一个数,不分人 —— 所有人的程序看到的是同一个值。
+   它答不了「谁花的」,只答「还剩多少」。接口本身免费,服务端缓存 60 秒。   */
+let BAL = null;
+async function loadBalance(force) {
+  const el = $('r-bal'), set = $('set-bal');
+  const d = await apiFetch('/api/ranks/balance' + (force ? '?force=1' : ''))
+    .then(r => r.json()).catch(() => null);
+  if (!d || d.error) {
+    BAL = null;
+    if (el) el.textContent = '查不到';
+    if (set) set.textContent = d && d.error ? ('DataForSEO 余额：' + d.error) : '';
+    return;
+  }
+  BAL = d;
+  // 低于 $5 标红:standard 单价下这大约只剩 3000 词
+  if (el) {
+    el.textContent = '$' + d.balance.toFixed(2) + '　(约 '
+      + d.words_left.toLocaleString() + ' 词)';
+    el.style.color = d.balance < 5 ? 'var(--warn)' : '';
+  }
+  if (set) set.innerHTML = 'DataForSEO 余额 <b>$' + d.balance.toFixed(2) + '</b>'
+    + '，累计充值 $' + d.total.toFixed(2) + '，已用 $' + d.spent.toFixed(2)
+    + '。这是整个账号的共用余额，不分人 —— 谁花的看不出来。';
+}
+if ($('r-bal-refresh'))
+  $('r-bal-refresh').onclick = e => { e.preventDefault(); loadBalance(true); };
 $('run-ranks').onclick = () => {
   const txt = $('r-cost').textContent;
-  if (!confirm(`这一轮会真实扣费，预估 ${txt}。确定开始吗？`)) return;
+  // 余额摆进确认框:花多少、剩多少、跑完剩多少 —— 决定就在这一眼里做
+  let tail = '';
+  if (BAL) {
+    const need = RANK_EST;
+    tail = '\n\n账户余额 $' + BAL.balance.toFixed(2)
+      + (need ? '，跑完约剩 $' + Math.max(0, BAL.balance - need).toFixed(2) : '');
+    if (need > BAL.balance)
+      tail += '\n\n⚠ 余额不够这一轮，会查到一半失败。';
+  }
+  if (!confirm(`这一轮会真实扣费，预估 ${txt}。${tail}\n\n确定开始吗？`)) return;
+  // 跑完刷一次余额:刚扣完费,这时候看最有意义,也顺带暴露这轮真花了多少
+  afterJob = () => loadBalance(true);
   run('/api/ranks/check', rankPayload(), '排名检查中…');
 };
 
 $('run-ranks-failed').onclick = () => {
   if (!confirm('只补查从来没查成功过的词，会产生少量费用。继续吗？')) return;
+  afterJob = () => loadBalance(true);
   run('/api/ranks/check', rankPayload({ only_failed: true }), '补查出错词…');
 };
 
@@ -610,6 +651,7 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
   loadLib();
   loadProjects(opts);
   skillNote();
+  loadBalance();
   const init = (d.geo || 'US').toUpperCase();
   [T.i, T.v, T.s].forEach(t => {
     t.add(init);

@@ -245,6 +245,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
         <div><label>查前几页</label><select id="r-depth"><option value="1">前 10 名</option><option value="2">前 20 名</option><option value="3" selected>前 30 名</option><option value="5">前 50 名</option><option value="10">前 100 名</option></select></div>
         <div><label>计费模式</label><select id="r-mode"><option value="standard">队列（省 70%）</option><option value="live">实时（贵且慢）</option></select></div>
         <div style="flex:1.6"><label>预估花费</label><div id="r-cost" style="padding-top:8px;font-weight:600">—</div></div>
+        <div style="flex:1.6"><label>账户余额 <a href="#" id="r-bal-refresh" style="font-weight:400;font-size:11px">刷新</a></label><div id="r-bal" style="padding-top:8px;font-weight:600">—</div></div>
       </div>
       <div class="row" style="align-items:center;margin-bottom:14px">
         <div style="flex:3"><label>飞书词库链接（留空则用项目配置里的）</label>
@@ -362,6 +363,7 @@ ol.steps{padding-left:20px;margin:8px 0} ol.steps li{margin-bottom:6px}
         <input type="file" id="skill-zip" accept=".zip" hidden>
       </div>
       <p class="hint" style="margin:12px 0 0" id="skill-note"></p>
+      <p class="hint" style="margin:8px 0 0" id="set-bal"></p>
       <p class="hint" style="margin:8px 0 0">LLM 用于 skill 引擎，<b>刻意没绑死一家</b>：模型名变动很快（DeepSeek 半年改了三次），不同 skill 也该配不同模型。在 <code>llm</code> 段选 provider 和 model 即可；DeepSeek 兼容 OpenAI SDK，填 key 就能用。</p>
     </div>
     <div class="card">
