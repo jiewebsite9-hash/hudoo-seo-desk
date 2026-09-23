@@ -123,17 +123,15 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 <section id="tab-sop">
     <div class="card">
       <h2>拓词</h2>
-      <p class="hint">数据<b>统一走 Google 关键词规划师</b>（Google Ads API），不再用 Semrush。三种词源可以叠加，合并去重后跑两轮取数（主市场 + 全球不限地区），按「互旦关键词 SOP V2」出 20 列总表。<b>意图、优先级、金矿、搜索量区间、来源渠道</b>按口径规则判定，零 AI、可回测；<b>布局角色、目标URL、页面类型、页面状态、该页主词、备注</b>是人工列，留空等你填。AI（DeepSeek）只做一件事：从客户资料生成筛词清单——产出是草稿，验过再用。</p>
+      <p class="hint">数据<b>统一走 Google 关键词规划师</b>（Google Ads API），不再用 Semrush。客户给的词原样进表（来源=客户提供），同时作为种子做「以关键字拓展」；竞品网址走「以网站拓展」。两路可叠加，合并去重后跑两轮取数（主市场 + 全球不限地区），按「互旦关键词 SOP V2」出 20 列总表。<b>意图、优先级、金矿、搜索量区间、来源渠道</b>按口径规则判定，零 AI、可回测；<b>布局角色、目标URL、页面类型、页面状态、该页主词、备注</b>是人工列，留空等你填。AI（DeepSeek）只做一件事：从客户资料生成筛词清单——产出是草稿，验过再用。</p>
       <p class="sect">① 词从哪来（至少填一样，可叠加）</p>
       <div class="row">
-        <div><label>种子词（一行一个，「以关键字拓展」）</label>
-          <textarea id="s-seeds" data-tpl="seeds" placeholder="conveyor roller&#10;idler roller"></textarea></div>
+        <div style="flex:1.6"><label>客户原始词（一行一个，支持 词⇥中文⇥级别）</label>
+          <textarea id="s-customer" data-tpl="customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--ink);font-weight:400">
+            <input type="checkbox" id="s-expand" checked style="width:auto">同时用这批词做种子拓展（取消 = 只给这批词补数据，不拓）</label></div>
         <div><label>竞品网址（一行一个，「以网站拓展」；填首页扒整站，填到具体页面只看那一页）</label>
           <textarea id="s-sites" data-tpl="sites" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
-      </div>
-      <div class="row">
-        <div style="flex:2"><label>客户原始词（可选，支持 词⇥中文⇥级别；<b>只给这一项 = 不拓词、只补数据</b>）</label>
-          <textarea id="s-customer" data-tpl="customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea></div>
       </div>
       <p class="sect">② 筛词清单（可选）　<span class="hint" style="font-weight:400">清单库：<select id="s-lib" style="width:auto;display:inline-block;padding:4px 8px"><option value="">（不带入）</option></select></span></p>
       <div class="row">

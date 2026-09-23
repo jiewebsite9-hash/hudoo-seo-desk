@@ -367,7 +367,7 @@ $('run-sop').onclick = () => {
     aiNote();
   };
   run('/api/keywords/sop', {
-  seeds: $('s-seeds').value,
+  expand_customer: $('s-expand').checked,   // 客户原始词兼作种子;取消 = 只补数据
   sites: $('s-sites').value,
   customer: $('s-customer').value,
   mixed: $('s-mixed').value,
@@ -444,12 +444,12 @@ function aiNote() {
   if (!el) return;
   el.textContent = LAST_WORDS.length
     ? '样本：上一轮拓出的 ' + LAST_WORDS.length + ' 个词'
-    : '样本：还没跑过拓词，会用种子词 + 客户原始词';
+    : '样本：还没跑过拓词，会用客户原始词';
 }
 if ($('run-derive-inline')) $('run-derive-inline').onclick = () => {
   if (!$('s-mat').value.trim()) return showErr('客户资料是空的。');
   const sample = LAST_WORDS.length ? LAST_WORDS.join(String.fromCharCode(10))
-    : $('s-seeds').value + String.fromCharCode(10) + $('s-customer').value;
+    : $('s-customer').value;
   afterJob = (st) => {
     const L = (st.result || {}).lists;
     if (!L) return;

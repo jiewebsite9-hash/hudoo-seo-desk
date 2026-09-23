@@ -98,11 +98,16 @@ def gold(intent, high_bid_usd, local_volume, competition):
 
 def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=None,
           exclude_words=None, market="US", lang="en", min_volume=10,
-          usd_rate=None, job=None):
+          usd_rate=None, expand_customer=True, job=None):
     """跑完整条链路并返回 (表头, 总表行, 剔除词行, 统计)。
 
     `customer_words` 每项可以是纯关键词,也可以是 `词<Tab>中文<Tab>级别`
     (逗号分隔也行) —— 对应「原始词核对」页的客户中文与客户级别两列。
+
+    按 SOP 的实际流程,种子词就是客户给的那批词,没有第二个来源。所以
+    `expand_customer=True`(默认)时客户原始词**同时**作为种子做「以关键字拓展」;
+    关掉 = 只给这批词补数据不拓(原「补搜索量」)。`seeds` 参数保留给
+    程序化调用方另加种子,界面上不再单独有这个框。
     """
     log = job.log if job else (lambda m: None)
     seeds = [s for s in (seeds or []) if s]
@@ -128,8 +133,14 @@ def build(seeds=None, competitor_sites=None, customer_words=None, mixed_words=No
     market = (market or "US").upper()
     market_cn = COUNTRIES.get(market, ("该市场",))[0]
 
+    if expand_customer and customer:
+        # 客户词兼作种子。用原始写法(不是小写键),GKP 对大小写不敏感但日志要好读
+        have = {x.lower() for x in seeds}
+        extra = [w for w in customer.values() if w.lower() not in have]
+        seeds = seeds + extra
+        log("客户原始词 %d 个兼作种子拓展" % len(extra))
     if not seeds and not sites and not customer:
-        raise gkp.GkpError("至少要给一样:种子词、竞品网址、或客户原始词。")
+        raise gkp.GkpError("至少要给一样:客户原始词或竞品网址。")
 
     # provenance: 关键词 -> {来源渠道}
     src = {}

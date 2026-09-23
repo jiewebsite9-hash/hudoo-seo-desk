@@ -524,7 +524,8 @@ class Handler(BaseHTTPRequestHandler):
                     mixed_words=mixed,
                     exclude_words=gkp.parse_keyword_text(b.get("exclude")),
                     market=market, lang=lang, min_volume=minv,
-                    usd_rate=b.get("usd_rate") or None, job=j)
+                    usd_rate=b.get("usd_rate") or None,
+                    expand_customer=bool(b.get("expand_customer", True)), job=j)
                 if not rows:
                     return {"count": 0, "preview": [], "csv": None}
                 csv_path = sop.save_csv(header, rows)
