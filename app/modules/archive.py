@@ -22,6 +22,7 @@ from app.modules.social import feishu_docs as fd
 FIELDS = [  # (字段名, 类型) 1 文本 2 数字 3 单选 5 日期 15 超链接
     ("标题", 1), ("类型", 3), ("客户", 1), ("操作人", 1), ("时间", 5),
     ("飞书文档", 15), ("在线表格", 15), ("xlsx 下载", 15), ("花费(USD)", 2), ("备注", 1),
+    ("操作人ID", 1),
 ]
 KINDS = ["拓词总表", "排名汇报", "GSC 周报", "社媒周报", "其他"]
 
@@ -110,8 +111,34 @@ def _drop_blank_rows(tok, base, table):
 
 
 def operator():
-    """当前操作人。上线接飞书登录后由登录态给;本机版读配置,没配就记「本机」。"""
-    return config.get("archive.operator") or "本机"
+    """当前操作人姓名。飞书登录模式下取登录态;本机版读配置,没配就记「本机」。"""
+    from app import userctx
+    return userctx.name() or config.get("archive.operator") or "本机"
+
+
+def viewers():
+    """产出要开给谁看:操作人 + 业主。「成员只看自己的,业主看全部」。"""
+    from app import userctx
+    return [i for i in (userctx.open_id(), owner_id()) if i]
+
+
+def _ensure_field(tok, base, table, name, typ=1):
+    """老表缺字段就补上(操作人ID 是上线登录后才加的)。"""
+    d = fd._call("GET", "/bitable/v1/apps/%s/tables/%s/fields" % (base, table), tok)
+    names = {f.get("field_name") for f in ((d.get("data") or {}).get("items") or [])}
+    if name not in names:
+        fd._call("POST", "/bitable/v1/apps/%s/tables/%s/fields" % (base, table), tok,
+                 {"field_name": name, "type": typ})
+
+
+def _token_of(url):
+    """飞书链接 -> (token, 类型)。"""
+    parts = [p for p in (url or "").split("?")[0].split("/") if p]
+    if len(parts) >= 2:
+        kind = {"docx": "docx", "sheets": "sheet", "file": "file", "base": "bitable"}.get(parts[-2])
+        if kind:
+            return parts[-1], kind
+    return None, None
 
 
 def _save(vals):
@@ -201,11 +228,19 @@ def record(kind, title, client="", operator="", doc_url=None, sheet_url=None, fi
     log = log or (lambda m: None)
     _, base, table = ensure_setup(log)
     tok = fd.token()
+    from app import userctx
+    oid = userctx.open_id()
+    _ensure_field(tok, base, table, "操作人ID")
+    # 文档是机器人建的,操作人默认看不到 —— 给他开编辑权(业主在建文档时已经开过)
+    if oid and doc_url:
+        t, kind = _token_of(doc_url)
+        if t:
+            grant(tok, t, kind, [oid], "edit", log)
     link = lambda u, t: {"link": u, "text": t} if u else None
     f = {"标题": title, "类型": kind if kind in KINDS else "其他", "客户": client or "",
          "操作人": operator or "", "时间": int(dt.datetime.now().timestamp() * 1000),
          "飞书文档": link(doc_url, "打开文档"), "在线表格": link(sheet_url, "在线查看"),
-         "xlsx 下载": link(file_url, "下载 xlsx"), "备注": note or ""}
+         "xlsx 下载": link(file_url, "下载 xlsx"), "备注": note or "", "操作人ID": oid or ""}
     if cost is not None:
         f["花费(USD)"] = float(cost)
     f = {k: v for k, v in f.items() if v not in (None, "")}
@@ -214,14 +249,15 @@ def record(kind, title, client="", operator="", doc_url=None, sheet_url=None, fi
     return d["record"]["record_id"]
 
 
-def list_records(operator=None, limit=100):
-    """工作台「我的产出」用。operator 为空 = 全部(业主)。"""
+def list_records(open_id=None, limit=100):
+    """工作台「我的产出」用。open_id 为空 = 全部(业主)。按 open_id 筛,不按姓名 —— 会重名。"""
     _, base, table = ensure_setup()
     tok = fd.token()
+    _ensure_field(tok, base, table, "操作人ID")
     body = {"sort": [{"field_name": "时间", "desc": True}]}
-    if operator:
+    if open_id:
         body["filter"] = {"conjunction": "and", "conditions": [
-            {"field_name": "操作人", "operator": "is", "value": [operator]}]}
+            {"field_name": "操作人ID", "operator": "is", "value": [open_id]}]}
     d = _ok(fd._call("POST", "/bitable/v1/apps/%s/tables/%s/records/search?page_size=%d" % (base, table, limit),
                      tok, body), "读产出记录")
     out = []

@@ -15,7 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote, quote
 
-from app import config, jobs
+from app import config, jobs, userctx
+from app import auth_feishu
 from app.modules.keywords import gkp
 
 VERSION = "0.1.0"
@@ -107,6 +108,69 @@ class Handler(BaseHTTPRequestHandler):
         # 逐字符等价比较,不要用 == 短路(时序侧信道)
         return hmac.compare_digest(str(got), want)
 
+    def _cookie(self, name):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name:
+                return v
+        return None
+
+    def _redirect(self, url, cookies=()):
+        self.send_response(302)
+        self.send_header("Location", url)
+        for c in cookies:
+            self.send_header("Set-Cookie", c)
+        self.end_headers()
+
+    def _login_gate(self, p):
+        """飞书模式:没有有效会话 -> 页面跳登录,接口回 401。有会话就把用户放进线程上下文。"""
+        u = auth_feishu.session_user(self._cookie(auth_feishu.COOKIE))
+        userctx.set_user(u)
+        if u:
+            return True
+        if p.startswith("/api/"):
+            self._json({"error": "登录已失效,请刷新页面重新登录。", "login": "/auth/login"}, 401)
+        else:
+            self._redirect("/auth/login")
+        return False
+
+    def _auth_route(self, p, q):
+        secure = "; Secure" if auth_feishu.base_url().startswith("https") else ""
+        if p == "/auth/login":
+            st = auth_feishu.new_state()
+            return self._redirect(auth_feishu.login_url(st), [
+                "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=600%s" % (auth_feishu.STATE_COOKIE, st, secure)])
+        if p == "/auth/feishu/callback":
+            code = (q.get("code") or [""])[0]
+            if not auth_feishu.state_ok((q.get("state") or [""])[0], self._cookie(auth_feishu.STATE_COOKIE)):
+                return self._login_error("登录校验失败(state 不匹配),请重新打开首页登录。")
+            try:
+                user = auth_feishu.exchange(code)
+            except auth_feishu.AuthError as e:
+                return self._login_error(str(e))
+            sid = auth_feishu.create_session(user)
+            return self._redirect("/", [
+                "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d%s" % (auth_feishu.COOKIE, sid, auth_feishu.TTL, secure),
+                "%s=; Path=/; Max-Age=0" % auth_feishu.STATE_COOKIE])
+        if p == "/auth/logout":
+            auth_feishu.drop_session(self._cookie(auth_feishu.COOKIE))
+            return self._redirect("/auth/bye", ["%s=; Path=/; Max-Age=0" % auth_feishu.COOKIE])
+        if p == "/auth/bye":
+            return self._login_error("已退出。", title="已退出")
+        return self._json({"error": "没有这个接口"}, 404)
+
+    def _login_error(self, msg, title="登录失败"):
+        from html import escape
+        body = ("<!doctype html><meta charset=utf-8><title>%s</title>"
+                "<body style='font-family:sans-serif;max-width:520px;margin:80px auto;line-height:1.7'>"
+                "<h2>%s</h2><p>%s</p><p><a href='/auth/login'>用飞书重新登录</a></p>"
+                % (escape(title), escape(title), escape(msg))).encode("utf-8")
+        self.send_response(200 if title == "已退出" else 403)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _deny(self):
         return self._json({"error": "需要访问口令。请向管理员要访问链接"
                                     "(形如 http://内网IP:8790/?t=口令)。"}, 403)
@@ -117,8 +181,29 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         p = u.path
 
-        if not self._allowed():
+        if auth_feishu.enabled():
+            if p.startswith("/auth/"):
+                return self._auth_route(p, q)
+            if not self._login_gate(p):
+                return
+        elif not self._allowed():
             return self._deny()
+
+        if p == "/api/me":
+            u = userctx.get_user()
+            return self._json({"mode": "feishu" if auth_feishu.enabled() else "local",
+                               "name": (u or {}).get("name"), "admin": bool(u and u.get("admin")),
+                               "avatar": (u or {}).get("avatar")})
+
+        if p == "/api/archive":
+            from app.modules import archive
+            u = userctx.get_user()
+            everyone = (u is None) or (u.get("admin") and (q.get("all") or [""])[0] == "1")
+            try:
+                rows = archive.list_records(None if everyone else u.get("open_id"))
+            except Exception as e:
+                return self._json({"error": "%s: %s" % (type(e).__name__, e)}, 400)
+            return self._json({"rows": rows, "all": bool(everyone)})
 
         if p in ("/", "/index.html"):
             return self._file(web_dir() / "index.html")
@@ -238,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/job":
             job = jobs.get((q.get("id") or [""])[0])
-            if not job:
+            if not job or not jobs.visible(job):
                 return self._json({"error": "作业不存在(可能已被清理)"}, 404)
             return self._json(job.snapshot(int((q.get("since") or ["0"])[0])))
 
@@ -315,7 +400,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         p = urlparse(self.path).path
 
-        if not self._allowed():
+        if auth_feishu.enabled():
+            if not self._login_gate(p):
+                return
+            # 只接受本站发起的 POST:会话 cookie 是 SameSite=Lax,再加一道 Origin 校验防跨站
+            origin = self.headers.get("Origin") or ""
+            if origin and origin.rstrip("/") != auth_feishu.base_url():
+                return self._json({"error": "来源不合法"}, 403)
+        elif not self._allowed():
             return self._deny()
 
         # 必须在 _body() 之前 —— 文件上传的请求体是二进制,
@@ -426,6 +518,9 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/gsc/auth":
             # 本机弹浏览器走 OAuth,拿 webmasters.readonly 的 refresh_token
             from app.modules.gsc import client as gsc
+            if auth_feishu.enabled():
+                return self._json({"error": "服务器上没法弹浏览器授权。请管理员在本机版工作台授权 GSC,"
+                                            "再把 config 里的 gsc.refresh_token 同步到服务器。"}, 400)
 
             def run(j):
                 gsc.authorize(open_browser=True, log=j.log)
@@ -943,7 +1038,7 @@ def _sop_result(j, sop, header, rows, cut, stats, params):
         from app.modules import archive
         client = params.get("client") or ""
         t = "拓词总表 %s%s" % ((client + " ") if client else "", xlsx_path.stem.replace("SOP工作簿_", ""))
-        got = archive.safe(archive.publish_table, xlsx_path, t, [archive.owner_id()], log=j.log)
+        got = archive.safe(archive.publish_table, xlsx_path, t, archive.viewers(), log=j.log)
         if got:
             sheet_url, file_url = got
             archive.safe(archive.record, "拓词总表", t, client=client, operator=archive.operator(),
@@ -1068,7 +1163,12 @@ def serve():
     # 绑到非本机地址 = 全组能访问 = 谁都能用你的 Google Ads / DataForSEO / DeepSeek 额度。
     # 没设口令就不让起,免得有人图省事绑了 0.0.0.0 就忘了。
     token_set = str(config.get("server.access_token", "") or "").strip()
-    if host not in ("127.0.0.1", "localhost", "::1") and not token_set:
+    if auth_feishu.enabled():
+        if not auth_feishu.base_url():
+            print("[中断] auth.mode = feishu 但没填 auth.base_url(形如 https://seokit.example.com)。")
+            return 2
+        print("飞书登录模式:回调地址 %s" % auth_feishu.redirect_uri())
+    elif host not in ("127.0.0.1", "localhost", "::1") and not token_set:
         print("[中断] server.host 设成了 %s(非本机),但 server.access_token 是空的。" % host)
         print("       这个程序持有会花钱的凭据,共享部署必须设访问口令。")
         print("       在 %s 里填 server.access_token,或把 host 改回 127.0.0.1。"
@@ -1078,7 +1178,12 @@ def serve():
     # 而旧实例还在端口上正常应答 —— 表现就是"改了代码重启了却完全没生效",
     # 极难察觉(实测为此白跑了三轮)。
     try:
-        httpd = ThreadingHTTPServer((host, port), Handler)
+        # Windows 上 SO_REUSEADDR 允许第二个进程绑同一端口且不报错 —— 旧实例继续应答,
+        # 新代码「重启了却没生效」,端口占用检查形同虚设。Windows 上关掉复用。
+        class _Server(ThreadingHTTPServer):
+            allow_reuse_address = (sys.platform != "win32")
+            daemon_threads = True
+        httpd = _Server((host, port), Handler)
     except OSError as e:
         print("[中断] 端口 %d 起不来:%s" % (port, e))
         print("       多半是上一个实例还在跑。先把它关掉(或改 server.port),再启动。")

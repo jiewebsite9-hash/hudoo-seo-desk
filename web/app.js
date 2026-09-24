@@ -36,7 +36,8 @@ function apiFetch(url, opts) {
   let tok = '';
   try { tok = localStorage.getItem('hsd_token') || ''; } catch (e) { }
   if (tok) opts.headers = Object.assign({}, opts.headers || {}, { 'X-Access-Token': tok });
-  return _rawFetch(url, opts);
+  // 飞书登录模式下会话失效:接口回 401,整页跳去重新登录
+  return _rawFetch(url, opts).then(r => { if (r.status === 401) location.href = '/auth/login'; return r; });
 }
 window.fetch = apiFetch;
 
@@ -52,7 +53,7 @@ function showOutbox() {
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['sop', 'ranks', 'gsc', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['sop', 'ranks', 'gsc', 'learn', 'social', 'mine', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
     $('outbox').hidden = !(outboxTab && outboxTab === b.dataset.tab);
   };
 });
@@ -786,6 +787,39 @@ if ($('run-gsc-auth')) $('run-gsc-auth').onclick = () => {
   afterJob = () => loadGscSites();
   run('/api/gsc/auth', {}, '授权 Search Console（看弹出的浏览器）…');
 };
+/* ---------------- 登录人 / 我的产出 ---------------- */
+let ME = null;
+async function loadMe() {
+  ME = await fetch('/api/me').then(r => r.json()).catch(() => null);
+  const el = $('me');
+  if (!ME || ME.mode !== 'feishu' || !el) return;
+  el.innerHTML = `${ME.name}${ME.admin ? '（管理员）' : ''}　<a href="/auth/logout">退出</a>`;
+  el.hidden = false;
+  if (ME.admin) $('m-all-wrap').style.display = '';
+}
+async function loadMine() {
+  const tbl = $('m-tbl');
+  if (!tbl) return;
+  $('m-note').textContent = '读取中…';
+  const all = $('m-all') && $('m-all').checked ? '?all=1' : '';
+  const d = await fetch('/api/archive' + all).then(r => r.json()).catch(e => ({ error: String(e) }));
+  if (d.error) { $('m-note').textContent = d.error; tbl.innerHTML = ''; return; }
+  const esc = v => String(v == null ? '' : v).replace(/</g, '&lt;');
+  const a = (u, t) => u ? `<a href="${esc(u)}" target="_blank">${t}</a>` : '';
+  const when = ms => ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }).slice(0, 16) : '';
+  const who = d.all;
+  tbl.innerHTML = '<thead><tr><th>时间</th><th>类型</th><th>客户</th><th>标题</th>' + (who ? '<th>操作人</th>' : '') +
+    '<th>飞书</th><th>花费</th></tr></thead><tbody>' +
+    d.rows.map(r => `<tr><td>${when(r.时间)}</td><td>${esc(r.类型)}</td><td>${esc(r.客户)}</td><td style="white-space:normal">${esc(r.标题)}</td>` +
+      (who ? `<td>${esc(r.操作人)}</td>` : '') +
+      `<td>${[a(r.doc, '文档'), a(r.sheet, '在线表格'), a(r.file, '下载 xlsx')].filter(Boolean).join('　')}</td>` +
+      `<td>${r.花费 != null ? '$' + Number(r.花费).toFixed(4) : ''}</td></tr>`).join('') + '</tbody>';
+  $('m-note').textContent = d.rows.length ? '共 ' + d.rows.length + ' 条（最近 100 条）' : '还没有产出。出一份周报或拓词表之后会出现在这里。';
+}
+if ($('m-reload')) $('m-reload').onclick = e => { e.preventDefault(); loadMine(); };
+if ($('m-all')) $('m-all').onchange = loadMine;
+document.querySelectorAll('nav button[data-tab="mine"]').forEach(b => b.addEventListener('click', loadMine));
+
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检 Google Ads…');
 $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
 
@@ -802,6 +836,7 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
   skillNote();
   loadBalance();
   loadGscSites();
+  loadMe();
   setKwSrc('empty');
   const init = (d.geo || 'US').toUpperCase();
   [T.s].forEach(t => {

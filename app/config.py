@@ -162,7 +162,13 @@ def skills_dir():
 
 
 def out_dir():
+    """导出目录。飞书登录模式下按人分子目录 —— 下载接口只认当前用户自己的目录,
+    成员拿不到别人的文件(文件名是可猜的)。"""
     d = _resolve(get("paths.out_dir", "out"), HOME)
+    from app import userctx
+    oid = userctx.open_id()
+    if oid:
+        d = d / oid
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -107,6 +107,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 <header>
   <h1>互旦 SEO 工作台</h1><span class="ver" id="ver"></span>
   <div class="pill" id="pills"></div>
+  <span id="me" style="margin-left:14px;font-size:13px;color:var(--dim);white-space:nowrap" hidden></span>
 </header>
 
 <nav>
@@ -115,6 +116,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
   <button data-tab="gsc">GSC 周报</button>
   <button data-tab="learn">学清单</button>
   <button data-tab="social">社媒周报</button>
+  <button data-tab="mine">我的产出</button>
   <button data-tab="setup">设置</button>
 </nav>
 
@@ -319,6 +321,17 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
     <div class="card" id="soc-out" hidden>
       <h2>出稿结果</h2>
       <div id="soc-docs"></div>
+    </div>
+  </section>
+
+  <section id="tab-mine" hidden>
+    <div class="card">
+      <h2>我的产出 <a href="#" id="m-reload" style="font-weight:400;font-size:12px">刷新</a>
+        <label id="m-all-wrap" style="display:none;font-weight:400;font-size:13px;margin-left:14px">
+          <input type="checkbox" id="m-all" style="width:auto"> 看全部成员</label></h2>
+      <p class="hint">每次出的周报、汇报、拓词表都会自动存进飞书,并记在这里。点链接直接在飞书里看;拓词表可以在线看,也可以下载 xlsx。</p>
+      <div class="tblwrap"><table id="m-tbl"></table></div>
+      <p class="hint" id="m-note" style="margin:10px 0 0"></p>
     </div>
   </section>
 

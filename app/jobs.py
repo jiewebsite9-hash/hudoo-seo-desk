@@ -10,6 +10,8 @@ import time
 import traceback
 import uuid
 
+from app import userctx
+
 _LOCK = threading.Lock()
 _JOBS = {}
 MAX_KEEP = 40
@@ -25,6 +27,7 @@ class Job:
         self.error = None
         self.started = time.time()
         self.finished = None
+        self.user = userctx.get_user()      # 谁发起的;本机模式为 None
 
     def log(self, msg):
         with _LOCK:
@@ -61,6 +64,7 @@ def start(name, fn):
         _prune()
 
     def runner():
+        userctx.set_user(job.user)      # 作业线程里也知道是谁在跑(归档、导出目录、授权都靠它)
         try:
             job.result = fn(job)
             job.status = "done"
@@ -85,9 +89,18 @@ def get(job_id):
     return _JOBS.get(job_id)
 
 
+def visible(job):
+    """飞书模式:只看自己发起的作业,管理员看全部。本机模式不限制。"""
+    u = userctx.get_user()
+    if u is None or u.get("admin"):
+        return True
+    return bool(job.user) and job.user.get("open_id") == u.get("open_id")
+
+
 def listing():
     with _LOCK:
         return [{"id": j.id, "name": j.name, "status": j.status,
+                 "user": (j.user or {}).get("name"),
                  "started": j.started,
                  "elapsed": round((j.finished or time.time()) - j.started, 1)}
-                for j in sorted(_JOBS.values(), key=lambda x: -x.started)]
+                for j in sorted(_JOBS.values(), key=lambda x: -x.started) if visible(j)]
