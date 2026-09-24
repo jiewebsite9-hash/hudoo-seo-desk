@@ -646,7 +646,8 @@ class Handler(BaseHTTPRequestHandler):
                 # 缓存取数结果:改清单只重打分,不重新取数;布词结果一起缓存
                 j.cache = {"col": col, "met": met, "layout": lay}
                 res = _sop_result(j, sop, header, rows, cut, stats,
-                                  {"market": market, "lang": lang, "min_volume": minv, "mixed": mixed})
+                                  {"market": market, "lang": lang, "min_volume": minv, "mixed": mixed,
+                                   "client": (b.get("client_name") or "").strip()})
                 if info:
                     res["layout"] = info
                 res["lists_used"] = {"mixed": mixed, "exclude": exclude, "soft": soft, "core": core}
@@ -857,6 +858,10 @@ def _gsc_report(j, site, client_name, end, brand, use_ai, push):
             url = feishu_docs.create(md, title, folder_token=folder, owner_open_id=owner, log=j.log)["url"]
         except Exception as e:
             j.log("建飞书文档失败(%s: %s);markdown 已导出,可手动上传" % (type(e).__name__, e))
+    if url and config.get("archive.enabled", True):
+        from app.modules import archive
+        archive.safe(archive.record, "GSC 周报", title, client=client_name, operator=archive.operator(),
+                     doc_url=url, cost=cost, note="整体 %s" % text["status"], log=j.log)
     if push:
         c = facts["cur"]
         snap = {x["指标"]: x for x in facts["snapshot"]}
@@ -906,6 +911,11 @@ def _rank_report(j, domain, push=True):
             j.log("建飞书文档失败(%s: %s);markdown 已导出,可手动上传" % (type(e).__name__, e))
     else:
         j.log("没配飞书凭据,只导出 markdown")
+    if url and config.get("archive.enabled", True):
+        from app.modules import archive
+        archive.safe(archive.record, "排名汇报", title, client=summ["name"], operator=archive.operator(),
+                     doc_url=url, cost=summ.get("cost"),
+                     note="前10名 %d 词 / 前30名 %d 词" % (summ["top10"], summ["top30"]), log=j.log)
     if push:
         try:
             feishu.push(tracker.report_summary_text(summ, url), log=j.log)
@@ -928,10 +938,21 @@ def _sop_result(j, sop, header, rows, cut, stats, params):
     xlsx_path = sop.save_workbook(header, rows, cut, stats, params)
     j.log("已导出 -> %s(总表 CSV)" % csv_path.name)
     j.log("已导出 -> %s(4 张表的工作簿,可直接导进飞书)" % xlsx_path.name)
+    sheet_url = file_url = None
+    if config.get("archive.enabled", True):
+        from app.modules import archive
+        client = params.get("client") or ""
+        t = "拓词总表 %s%s" % ((client + " ") if client else "", xlsx_path.stem.replace("SOP工作簿_", ""))
+        got = archive.safe(archive.publish_table, xlsx_path, t, [archive.owner_id()], log=j.log)
+        if got:
+            sheet_url, file_url = got
+            archive.safe(archive.record, "拓词总表", t, client=client, operator=archive.operator(),
+                         sheet_url=sheet_url, file_url=file_url,
+                         note="总表 %d 词,剔除 %d" % (len(rows), len(cut)), log=j.log)
     keymap = dict(zip(sop.COLUMNS, header))
     preview = [{keymap[k]: v for k, v in r.items() if k in keymap} for r in rows[:200]]
     return {"count": len(rows), "columns": header, "preview": preview,
-            "csv": csv_path.name, "xlsx": xlsx_path.name,
+            "csv": csv_path.name, "xlsx": xlsx_path.name, "sheet_url": sheet_url, "file_url": file_url,
             "truncated": len(rows) > 200, "stats": clean}
 
 
@@ -1019,6 +1040,11 @@ def social_generate(job, analysis, client, use_ai, push):
             # 飞书失败不该让整个作业白跑 —— markdown 已经落盘了
             job.log("建飞书文档失败(%s: %s)；markdown 已导出，可手动上传。"
                     % (type(e).__name__, e))
+
+    if doc and config.get("archive.enabled", True):
+        from app.modules import archive
+        archive.safe(archive.record, "社媒周报", fname.replace(".md", ""), client=client,
+                     operator=archive.operator(), doc_url=doc.get("url"), log=job.log)
 
     # **出稿成功后才存档**,避免半截数据污染下期的环比基线
     social.archive(client, analysis)

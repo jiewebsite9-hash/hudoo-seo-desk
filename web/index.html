@@ -131,7 +131,8 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
           <textarea id="s-customer" data-tpl="customer" data-full="1" placeholder="conveyor roller&#9;输送机辊筒&#9;S&#10;rubber roller&#9;橡胶辊筒&#9;A+"></textarea>
           <label style="display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--ink);font-weight:400">
             <input type="checkbox" id="s-expand" checked style="width:auto">兼作种子拓展（取消 = 只补数据）</label></div>
-        <div><label>客户网址（拓词 + 布词都用它）</label><input id="s-client" placeholder="https://client-site.com">
+        <div><label>客户名（归档与文档标题用）</label><input id="s-cname" placeholder="例如：某某传动">
+          <label style="margin-top:10px">客户网址（拓词 + 布词都用它）</label><input id="s-client" placeholder="https://client-site.com">
           <label style="margin-top:10px">竞品网址（一行一个；首页=整站，具体页=单页）</label>
           <textarea id="s-sites" data-tpl="sites" style="min-height:74px" placeholder="https://competitor-a.com&#10;https://competitor-b.com"></textarea></div>
       </div>
@@ -359,6 +360,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <a class="dl" id="dl" href="#">下载 CSV</a>
       <a class="dl" id="dlx" href="#" hidden>下载 xlsx 工作簿（4 张表）</a>
       <a class="dl" id="dldoc" href="#" target="_blank" hidden>打开飞书文档</a>
+      <a class="dl" id="dlsheet" href="#" target="_blank" hidden>飞书在线表格</a>
       <span class="ver" id="trunc"></span>
       <span class="ver" id="stats" style="margin-left:auto"></span>
     </div>

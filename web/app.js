@@ -165,6 +165,8 @@ function render(res) {
   else dl.hidden = true;
   const dd = $('dldoc');
   if (dd) { if (res.doc_url) { dd.href = res.doc_url; dd.hidden = false; } else dd.hidden = true; }
+  const ds = $('dlsheet');
+  if (ds) { if (res.sheet_url) { ds.href = res.sheet_url; ds.hidden = false; } else ds.hidden = true; }
   const xl = $('dlx');
   if (res.xlsx) { xl.href = '/api/download?file=' + encodeURIComponent(res.xlsx); xl.hidden = false; }
   else xl.hidden = true;
@@ -383,6 +385,7 @@ let T = {};
 let LAST_JOB = null, LAST_AI = null;
 function sopPayload() {
   return {
+    client_name: $('s-cname').value,
     customer: $('s-customer').value, expand_customer: $('s-expand').checked,
     client_site: $('s-client').value, sites: $('s-sites').value,
     material: $('s-mat').value, extra: $('s-dextra').value,
