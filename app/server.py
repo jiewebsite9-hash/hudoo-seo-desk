@@ -418,6 +418,9 @@ class Handler(BaseHTTPRequestHandler):
         # 同理:zip 是二进制,不能先被 _body() 当 JSON 读掉
         if p == "/api/skills/import":
             from app.modules import skillpack
+            # 团队版:导入会整批覆盖服务器上的 skill,只给管理员
+            if auth_feishu.enabled() and not userctx.is_admin():
+                return self._json({"error": "只有管理员能导入 skill 包。"}, 403)
             n = int(self.headers.get("Content-Length") or 0)
             if not n:
                 return self._json({"error": "没收到文件内容"}, 400)
