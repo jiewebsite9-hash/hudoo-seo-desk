@@ -17,6 +17,7 @@ from app import config
 
 API = "https://open.feishu.cn/open-apis"
 BATCH = 40           # 一次插多少个一级块;太多会超时
+MAX_DESC = 400       # 一次最多插多少个块(含子孙);超了飞书报 99992402
 
 
 class FeishuError(RuntimeError):
@@ -122,18 +123,35 @@ def create(markdown, title, folder_token=None, owner_open_id=None, log=None):
             stack.extend(blocks[cur].get("children") or [])
         return out
 
-    index = 0
-    for i in range(0, len(top), BATCH):
-        chunk = top[i:i + BATCH]
-        seen = set()
-        desc = []
-        for bid in chunk:
-            desc.extend(subtree(bid, seen))
+    # 按块数分批,不按一级块数:一张 268 行的表一个子树就 1000 多个块,和别的块
+    # 一起一次写入会被拒(99992402)。子树必须整棵一起传,所以大表要在 markdown 侧先分段。
+    state = {"index": 0, "n": 0, "ids": [], "desc": []}
+
+    def flush():
+        if not state["ids"]:
+            return
+        state["n"] += 1
         _ok(_call("POST", "/docx/v1/documents/%s/blocks/%s/descendant" % (doc_id, doc_id),
-                  tok, {"children_id": chunk, "index": index, "descendants": desc}),
-            "写入第 %d 批" % (i // BATCH + 1))
-        index += len(chunk)
-        log("  写入 %d 个一级块（%d 个块）" % (len(chunk), len(desc)))
+                  tok, {"children_id": state["ids"], "index": state["index"],
+                        "descendants": state["desc"]}),
+            "写入第 %d 批" % state["n"])
+        state["index"] += len(state["ids"])
+        log("  写入 %d 个一级块（%d 个块）" % (len(state["ids"]), len(state["desc"])))
+        state["ids"], state["desc"] = [], []
+
+    try:
+        for bid in top:
+            sub = subtree(bid, set())
+            if state["ids"] and (len(state["desc"]) + len(sub) > MAX_DESC or len(state["ids"]) >= BATCH):
+                flush()
+            state["ids"].append(bid)
+            state["desc"].extend(sub)
+        flush()
+    except FeishuError:
+        # 写一半失败别留空壳:删掉再抛,调用方拿到的是失败不是一个空文档链接
+        _call("DELETE", "/drive/v1/files/%s?type=docx" % doc_id, tok)
+        log("写入失败,已删除空文档")
+        raise
 
     if owner_open_id:
         r = _call("POST", "/drive/v1/permissions/%s/members?type=docx&need_notification=false"

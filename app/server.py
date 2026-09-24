@@ -414,6 +414,17 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("LLM 连通性自检", run).id})
 
+        if p == "/api/ranks/report":
+            # 拿最近一轮结果出飞书文档 + 私聊链接,不重新检查
+            domain = (b.get("domain") or "").strip()
+            if not domain:
+                return self._json({"error": "域名不能为空。"}, 400)
+
+            def run(j):
+                return _rank_report(j, domain, bool(b.get("push", True)))
+
+            return self._json({"job": jobs.start("出飞书排名汇报", run).id})
+
         if p == "/api/ranks/sync":
             from app.modules.ranks import tracker
 
@@ -463,9 +474,9 @@ class Handler(BaseHTTPRequestHandler):
                         j.log("[写回失败] %s(排名数据已存好,可以单独重试写回)" % str(e)[:120])
                 if b.get("push"):
                     try:
-                        from app.modules.ranks import feishu
-                        feishu.push(tracker.report_text(b.get("domain") or "", stats, rows),
-                                    log=j.log)
+                        rep = _rank_report(j, b.get("domain") or "", push=True)
+                        if rep.get("doc_url"):
+                            stats["飞书文档"] = rep["doc_url"]
                     except Exception as e:
                         j.log("[推送失败] %s" % str(e)[:120])
                 return {"count": len(rows),
@@ -786,6 +797,41 @@ def _strip_header(rows):
         if first in HEADER_WORDS:
             out.pop(0)
     return out
+
+
+def _rank_report(j, domain, push=True):
+    """最近一轮排名 -> markdown 落盘 -> 飞书文档(业主编辑权)-> 私聊链接。"""
+    from app.modules.ranks import tracker, feishu
+    from app.modules.social import feishu_docs
+    title, md, summ = tracker.report_markdown(domain)
+    if not summ["total"]:
+        raise tracker.RankError("这个域名还没有任何检查记录。")
+    path = config.out_dir() / ("排名汇报_%s_%s.md" % (summ["host"], summ["run_date"]))
+    path.write_text(md, encoding="utf-8")
+    j.log("已导出 %s" % path.name)
+    url = None
+    if feishu_docs.configured():
+        folder = config.get("ranks.folder_token") or config.get("social.folder_token") or None
+        owner = config.get("social.owner_open_id") or None
+        try:
+            doc = feishu_docs.create(md, title, folder_token=folder, owner_open_id=owner, log=j.log)
+            url = doc["url"]
+        except Exception as e:
+            # 建文档失败不能把汇报废掉:markdown 已落盘,简报照发
+            j.log("建飞书文档失败(%s: %s);markdown 已导出,可手动上传" % (type(e).__name__, e))
+    else:
+        j.log("没配飞书凭据,只导出 markdown")
+    if push:
+        try:
+            feishu.push(tracker.report_summary_text(summ, url), log=j.log)
+        except Exception as e:
+            j.log("推送失败:%s" % str(e)[:160])
+    return {"count": len(summ["rows"]), "columns": ["关键词", "排名", "上轮", "变化", "URL", "轮次"],
+            "preview": summ["rows"][:200], "csv": None, "truncated": len(summ["rows"]) > 200,
+            "stats": {"轮次": summ["run_date"], "前10名": summ["top10"], "前30名": summ["top30"],
+                      "未进前30": summ["unranked"], "待补查": summ["failed"],
+                      "上升": summ["up"], "下降": summ["down"], "新进": summ["new"], "掉出": summ["out"]},
+            "doc_url": url, "md": path.name}
 
 
 def _sop_result(j, sop, header, rows, cut, stats, params):

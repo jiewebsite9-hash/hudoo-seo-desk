@@ -201,7 +201,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
         <div style="flex:0 0 auto"><label>查完顺带</label>
           <label style="display:flex;gap:14px;color:var(--ink);white-space:nowrap;padding-top:7px">
             <span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="r-wb" style="width:auto">写回飞书排名列</span>
-            <span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="r-push" style="width:auto">推送简报</span>
+            <span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="r-push" style="width:auto">出飞书汇报并推送给我</span>
           </label></div>
       </div>
       <button class="go" id="run-ranks">开始检查</button>
@@ -209,6 +209,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <button class="ghost" id="run-wb" style="margin-left:8px">📤 写回排名列</button>
       <button class="ghost" id="run-ranks-failed" style="margin-left:8px">只补查出错词</button>
       <button class="ghost" id="run-ranks-view" style="margin-left:8px">看最近一轮</button>
+      <button class="ghost" id="run-report" style="margin-left:8px">📄 出飞书汇报（最近一轮）</button>
       <p class="hint" style="margin:12px 0 0">⚠ 域名写法是这里最容易翻车的地方。写成 <code>example.com/</code> 或带 <code>https://</code> 会让匹配永远落空、把整个项目记成「一个词都没排名」，<b>而且不报错</b>。程序会自动归一化并在日志里提示。</p>
     </div>
   </section>
@@ -331,6 +332,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <span>共 <b id="cnt">0</b> 行</span>
       <a class="dl" id="dl" href="#">下载 CSV</a>
       <a class="dl" id="dlx" href="#" hidden>下载 xlsx 工作簿（4 张表）</a>
+      <a class="dl" id="dldoc" href="#" target="_blank" hidden>打开飞书文档</a>
       <span class="ver" id="trunc"></span>
       <span class="ver" id="stats" style="margin-left:auto"></span>
     </div>

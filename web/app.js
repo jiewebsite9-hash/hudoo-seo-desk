@@ -163,6 +163,8 @@ function render(res) {
   const dl = $('dl');
   if (res.csv) { dl.href = '/api/download?file=' + encodeURIComponent(res.csv); dl.hidden = false; }
   else dl.hidden = true;
+  const dd = $('dldoc');
+  if (dd) { if (res.doc_url) { dd.href = res.doc_url; dd.hidden = false; } else dd.hidden = true; }
   const xl = $('dlx');
   if (res.xlsx) { xl.href = '/api/download?file=' + encodeURIComponent(res.xlsx); xl.hidden = false; }
   else xl.hidden = true;
@@ -700,6 +702,10 @@ $('run-wb').onclick = () => {
   if (!confirm('会把最近一轮的排名写进飞书表的排名列，覆盖原值。继续吗？')) return;
   run('/api/ranks/writeback', { domain: $('r-domain').value,
       url: $('r-feishu').value, field: $('r-field').value }, '写回飞书…');
+};
+$('run-report').onclick = () => {
+  if (!$('r-domain').value.trim()) return showErr('域名是空的。');
+  run('/api/ranks/report', { domain: $('r-domain').value, push: true }, '出飞书排名汇报…');
 };
 $('run-ranks-view').onclick = async () => {
   showErr('');

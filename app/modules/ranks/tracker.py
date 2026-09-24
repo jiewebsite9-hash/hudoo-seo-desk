@@ -120,7 +120,7 @@ def check(domain, keywords=None, gl=None, hl=None, device=None, depth=None,
         log("词表来源:%s" % kw_source)
     eng = make_engine(gl, hl, device, depth, mode, log=log)
     log("域名 %s(归一化后 %s)| %d 个词 | 前 %d 名 | %s 模式 | 预估 $%.4f"
-        % (domain, host, len(words), depth * 10, mode, eng.estimate(len(words))))
+        % (domain, host, len(words), top_n, mode, eng.estimate(len(words))))
     if host != str(domain).strip().lower().replace("www.", ""):
         log("提示:domain 已归一化,匹配用的是 %s" % host)
 
@@ -147,7 +147,7 @@ def check(domain, keywords=None, gl=None, hl=None, device=None, depth=None,
         prev = storage.prev_position(conn, kw, host, run_date)
         rows.append({"run_date": run_date, "checked_at": checked_at, "keyword": kw,
                      "domain": host, "gl": gl, "hl": hl, "device": device,
-                     "position": pos, "url": url, "depth": depth * 10,
+                     "position": pos, "url": url, "depth": top_n,
                      "status": g["status"], "cost": eng.cost_by_kw.get(kw),
                      "engine": mode})
         out.append({"关键词": kw, "排名": pos or "", "上轮": prev or "",
@@ -245,6 +245,133 @@ def writeback(domain, field=None, url=None, job=None):
     res = feishu.writeback(url, pos, field_name=field, log=log)
     res["run_date"] = run_date
     return res
+
+
+def _rank_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def report_markdown(domain):
+    """飞书文档版排名汇报。返回 (标题, markdown, 摘要 dict)。
+
+    格式对齐参考文档:头部(站点 / 采样条件 / 生成时间 / 监控词总数 / 已有排名 | 未进前 30)
+    + 按名次升序的表(名次 / 关键词 / 排名页面 / 检查日期)。摘要里放前 10 名词表、
+    前 30 名词数、较上轮的升 / 降 / 新进 / 掉出 —— 汇报最先要回答的三件事。
+    """
+    host = norm_host(domain)
+    proj = find_project(domain)
+    name = (proj or {}).get("name") or host
+    ov = overview(domain)
+    rows = ov["rows"]
+    conn = storage.connect()
+    raw = storage.latest(conn, host)
+    conn.close()
+    meta = raw[0] if raw else {}
+    get = lambda k, d="": (meta[k] if (meta is not None and k in meta.keys() and meta[k] is not None) else d) if raw else d
+    # 库里的 depth 存的是「前几名」(30),不是页数;老记录可能存页数(3),都兼容
+    depth = _rank_int(get("depth", 3)) or 3
+    top_n = depth if depth >= 10 else top_n
+    run_date = (ov.get("cost") or {}).get("run_date") or get("run_date")
+    prev_dates = [d for d in ov.get("run_dates") or [] if d != run_date]
+    prev_date = prev_dates[0] if prev_dates else None
+
+    ranked = [r for r in rows if _rank_int(r["排名"])]
+    unranked = [r for r in rows if not _rank_int(r["排名"])]
+    top10 = [r for r in ranked if _rank_int(r["排名"]) <= 10]
+    mid = [r for r in ranked if 10 < _rank_int(r["排名"]) <= 30]
+    up = down = same = new = out = 0
+    for r in rows:
+        cur, prev = _rank_int(r["排名"]), _rank_int(r["上轮"])
+        if cur and prev:
+            up += cur < prev; down += cur > prev; same += cur == prev
+        elif cur and not prev and prev_date:
+            new += 1
+        elif prev and not cur:
+            out += 1
+    avg = (sum(_rank_int(r["排名"]) for r in ranked) / len(ranked)) if ranked else 0
+    summ = {"name": name, "host": host, "run_date": run_date, "prev_date": prev_date,
+            "total": len(rows), "ranked": len(ranked), "unranked": len(unranked),
+            "failed": ov.get("failed") or 0, "top10": len(top10), "top30": len(ranked),
+            "top3": sum(1 for r in ranked if _rank_int(r["排名"]) <= 3),
+            "avg": round(avg, 1), "up": up, "down": down, "same": same, "new": new, "out": out,
+            "cost": (ov.get("cost") or {}).get("cost"),
+            "top10_words": [(r["关键词"], _rank_int(r["排名"])) for r in top10],
+            "rows": rows}
+
+    title = "%s 关键词排名监控 %s" % (name, run_date)
+    cond = "Google %s / %s / %s / 自然结果前 %d 名" % (str(get("gl", "US")).upper(), get("hl", "en"), get("device", "desktop"), top_n)
+    L = ["# " + title, "",
+         "**站点**:%s" % host,
+         "**采样条件**:%s" % cond,
+         "**生成时间**:%s" % datetime.now().strftime("%Y-%m-%d %H:%M"),
+         "**监控词总数**:%d(已有排名 %d | 已检测·未进前 30:%d | 待补查:%d)" % (len(rows), len(ranked), len(unranked), summ["failed"]),
+         "**本轮花费**:$%s" % (summ["cost"] if summ["cost"] is not None else "—"),
+         "", "## 本轮摘要", ""]
+    if top10:
+        L.append("- **前 10 名:%d 词** —— %s" % (len(top10), "、".join("%s(#%d)" % (k, r) for k, r in summ["top10_words"])))
+    else:
+        L.append("- **前 10 名:0 词**")
+    L.append("- **前 30 名:%d 词**(前 3 名 %d 词,平均名次 %s)" % (len(ranked), summ["top3"], summ["avg"] if ranked else "—"))
+    if prev_date:
+        L.append("- **较上轮(%s)**:上升 %d / 下降 %d / 持平 %d / 新进前 30:%d / 掉出前 30:%d" % (prev_date, up, down, same, new, out))
+    else:
+        L.append("- **较上轮**:首轮检查,无环比;下轮起自动带出升降。")
+    L.append("- 名次 = 该词在 %s 自然结果中的精确位次;「未进前 30」不等于没有排名,只是不在前 %d 名内。" % (cond.split(" / 自然")[0], top_n))
+    L.append("")
+
+    def table(rows_, cols, cells, chunk=60):
+        # 每 60 行一张表:飞书一次写入有块数上限,一张 268 行的表整棵传会被拒
+        for i in range(0, len(rows_), chunk):
+            if i:
+                L.append("")
+            L.append("| " + " | ".join(cols) + " |")
+            L.append("|" + "---|" * len(cols))
+            for r in rows_[i:i + chunk]:
+                L.append("| " + " | ".join(str(c).replace("|", "／") for c in cells(r)) + " |")
+        L.append("")
+
+    L += ["## 一、前 10 名(%d 词,按名次升序)" % len(top10), ""]
+    if top10:
+        table(top10, ["名次", "关键词", "上轮", "变化", "排名页面"],
+              lambda r: (r["排名"], r["关键词"], r["上轮"] or "—", r["变化"] or "—", r["URL"] or ""))
+    else:
+        L += ["（无）", ""]
+    L += ["## 二、11–30 名(%d 词)" % len(mid), ""]
+    if mid:
+        table(mid, ["名次", "关键词", "上轮", "变化", "排名页面"],
+              lambda r: (r["排名"], r["关键词"], r["上轮"] or "—", r["变化"] or "—", r["URL"] or ""))
+    else:
+        L += ["（无）", ""]
+    L += ["## 三、已检测 · 未进前 30(%d 词)" % len(unranked), ""]
+    if unranked:
+        table(unranked, ["关键词", "上轮", "检查日期"],
+              lambda r: (r["关键词"], (("#%s → 掉出" % r["上轮"]) if _rank_int(r["上轮"]) else "—"), r["轮次"]))
+    else:
+        L += ["（无）", ""]
+    if summ["failed"]:
+        L += ["## 四、待补查(%d 词)" % summ["failed"], "",
+              "这些词本轮没有拿到结果(接口出错或超时),下次点「只补查出错词」会自动补,不重复扣费。", ""]
+    return title, "\n".join(L), summ
+
+
+def report_summary_text(summ, url=None):
+    """推送用的短文本:三件事 + 文档链接。"""
+    lines = ["【排名监控】%s  %s" % (summ["name"], summ["run_date"]),
+             "共 %d 词:前 10 名 %d 词,前 30 名 %d 词,未进前 30:%d 词%s"
+             % (summ["total"], summ["top10"], summ["top30"], summ["unranked"],
+                (",待补查 %d 词" % summ["failed"]) if summ["failed"] else "")]
+    if summ["top10_words"]:
+        lines.append("前 10 名:" + "、".join("%s(#%d)" % (k, r) for k, r in summ["top10_words"][:12]))
+    if summ["prev_date"]:
+        lines.append("较上轮(%s):↑%d ↓%d 持平 %d 新进 %d 掉出 %d" % (summ["prev_date"], summ["up"], summ["down"], summ["same"], summ["new"], summ["out"]))
+    else:
+        lines.append("首轮检查,无环比")
+    if url:
+        lines.append("文档:" + url)
+    return "\n".join(lines)
 
 
 def report_text(domain, stats, rows, top=8):
