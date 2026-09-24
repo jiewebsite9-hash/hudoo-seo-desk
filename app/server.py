@@ -150,6 +150,15 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(data)
 
+        if p == "/api/gsc/sites":
+            from app.modules.gsc import client as gsc
+            if not gsc.configured():
+                return self._json({"sites": [], "configured": False})
+            try:
+                return self._json({"sites": gsc.sites(), "configured": True})
+            except gsc.GscError as e:
+                return self._json({"error": str(e), "configured": True}, 400)
+
         if p == "/api/ranks/balance":
             # 查余额本身免费,但别让刷一次页面就打一发 —— 缓存 60 秒。
             # ?force=1 可以跳过缓存(刚充完值想立刻看到)。
@@ -413,6 +422,33 @@ class Handler(BaseHTTPRequestHandler):
                                   "本次花费": ("$%s" % r["cost"]) if r["cost"] is not None else "—"}}
 
             return self._json({"job": jobs.start("LLM 连通性自检", run).id})
+
+        if p == "/api/gsc/auth":
+            # 本机弹浏览器走 OAuth,拿 webmasters.readonly 的 refresh_token
+            from app.modules.gsc import client as gsc
+
+            def run(j):
+                gsc.authorize(open_browser=True, log=j.log)
+                ss = gsc.sites()
+                j.log("授权完成,这个账号能看到 %d 个资源" % len(ss))
+                return {"count": len(ss), "columns": ["资源", "权限"],
+                        "preview": [{"资源": x["site"], "权限": x["permission"]} for x in ss],
+                        "csv": None, "stats": {"资源数": len(ss)}}
+
+            return self._json({"job": jobs.start("授权 Search Console", run).id})
+
+        if p == "/api/gsc/report":
+            site = (b.get("site") or "").strip()
+            name = (b.get("client") or "").strip()
+            if not site:
+                return self._json({"error": "先选一个 GSC 资源。"}, 400)
+
+            def run(j):
+                return _gsc_report(j, site, name or _site_name(site), (b.get("end") or "").strip() or None,
+                                   [x.strip() for x in str(b.get("brand") or "").split(",") if x.strip()],
+                                   bool(b.get("use_ai", True)), bool(b.get("push", True)))
+
+            return self._json({"job": jobs.start("出 GSC 周报", run).id})
 
         if p == "/api/ranks/report":
             # 拿最近一轮结果出飞书文档 + 私聊链接,不重新检查
@@ -797,6 +833,55 @@ def _strip_header(rows):
         if first in HEADER_WORDS:
             out.pop(0)
     return out
+
+
+def _site_name(site):
+    return site.replace("sc-domain:", "").replace("https://", "").replace("http://", "").strip("/")
+
+
+def _gsc_report(j, site, client_name, end, brand, use_ai, push):
+    """GSC 周报:取数 → 判定 → AI 写字 → markdown 落盘 → 飞书文档(业主编辑权)→ 私聊。"""
+    from app.modules.gsc import report as gr
+    from app.modules.ranks import feishu
+    from app.modules.social import feishu_docs
+    title, md, facts, text, cost = gr.build(site, client_name, end=end, brand=brand, use_ai=use_ai, log=j.log)
+    w = facts["window"]
+    path = config.out_dir() / ("GSC周报_%s_%s-%s.md" % (_site_name(site), w["start"].replace("-", ""), w["end"].replace("-", "")))
+    path.write_text(md, encoding="utf-8")
+    j.log("已导出 %s" % path.name)
+    url = None
+    if feishu_docs.configured():
+        folder = config.get("gsc.folder_token") or config.get("social.folder_token") or None
+        owner = config.get("social.owner_open_id") or None
+        try:
+            url = feishu_docs.create(md, title, folder_token=folder, owner_open_id=owner, log=j.log)["url"]
+        except Exception as e:
+            j.log("建飞书文档失败(%s: %s);markdown 已导出,可手动上传" % (type(e).__name__, e))
+    if push:
+        c = facts["cur"]
+        snap = {x["指标"]: x for x in facts["snapshot"]}
+        msg = ["【GSC 周同步】%s  %s ~ %s" % (client_name, w["start"], w["end"]),
+               "整体:%s" % text["status"],
+               "曝光 %s(%s)· 点击 %s(%s)· CTR %.1f%%(%s)· 平均排名 %.1f(%s)" % (
+                   "{:,}".format(c["impressions"]), snap["曝光"]["环比"], "{:,}".format(c["clicks"]), snap["点击"]["环比"],
+                   c["ctr"], snap["CTR"]["环比"], c["position"], snap["平均排名"]["环比"])]
+        if facts["diverge"]:
+            msg.append("背离:" + "、".join(facts["diverge"]))
+        if text["conclusion"]:
+            msg.append(text["conclusion"][0])
+        if url:
+            msg.append("文档:" + url)
+        try:
+            feishu.push("\n".join(msg), log=j.log)
+        except Exception as e:
+            j.log("推送失败:%s" % str(e)[:160])
+    rows = [dict(r, 维度="查询词↑") for r in facts["queries_up"]] + [dict(r, 维度="查询词↓") for r in facts["queries_down"]] \
+         + [dict(r, 维度="页面↑") for r in facts["pages_up"]] + [dict(r, 维度="页面↓") for r in facts["pages_down"]]
+    st = {x["指标"]: "%s(%s·%s)" % (x["本周"], x["环比"], x["判定"]) for x in facts["snapshot"]}
+    st.update({"整体": text["status"], "背离": "、".join(facts["diverge"]) or "无",
+               "AI 花费": ("$%s" % cost) if cost is not None else "未调用"})
+    return {"count": len(rows), "columns": ["维度", "对象", "本周点击", "上周点击", "差值", "本周排名", "词性"],
+            "preview": rows, "csv": None, "stats": st, "doc_url": url, "md": path.name}
 
 
 def _rank_report(j, domain, push=True):

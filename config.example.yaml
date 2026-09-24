@@ -16,6 +16,14 @@ google_ads:
   refresh_token: ""        # (GKP_REFRESH_TOKEN) 跑一次 python -m app.auth 生成
   login_customer_id: ""    # (GKP_LOGIN_CUSTOMER_ID) MCC 账号 ID,纯数字不带横杠
 
+# ---------- Google Search Console(GSC 周报)----------
+# 复用上面 google_ads 的 client_id / client_secret(同一个 Cloud 项目,要在项目里启用
+# 「Google Search Console API」);refresh_token 在界面「设置」页点「授权 GSC」自动写进来,
+# 和 Ads 的分开存 —— scope 不同,混用会互相作废。
+gsc:
+  refresh_token: ""
+  folder_token: ""         # 周报文档放进哪个飞书文件夹;留空用 social.folder_token
+
 # ---------- Claude API(执行 SEO skill)----------
 anthropic:
   api_key: ""              # (ANTHROPIC_API_KEY) console.anthropic.com 自取

@@ -112,6 +112,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 <nav>
   <button data-tab="sop" class="active">拓词</button>
   <button data-tab="ranks">排名监控</button>
+  <button data-tab="gsc">GSC 周报</button>
   <button data-tab="learn">学清单</button>
   <button data-tab="social">社媒周报</button>
   <button data-tab="setup">设置</button>
@@ -215,6 +216,30 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
   </section>
 
   <!-- ============ 学清单 ============ -->
+  <section id="tab-gsc" hidden>
+    <div class="card">
+      <h2>GSC 周报</h2>
+      <p class="hint">拉 Google Search Console 近 7 天 vs 前 7 天，按《SEO 客户周同步》模板出稿：数字和判定（正常 / 关注 / 异常 / 背离）由规则算，AI 只写结论、三段式解读和本周计划。出完建飞书文档、私聊链接给你。收录数和询盘数接口不提供，文档里留【】手填。</p>
+      <div class="row">
+        <div style="flex:2"><label>GSC 资源 <a href="#" id="g-reload" style="font-weight:400;font-size:11px">刷新</a></label>
+          <select id="g-site"><option value="">（先在「设置」页授权 GSC）</option></select></div>
+        <div style="flex:1.2"><label>客户名（文档标题用）</label><input id="g-client" placeholder="例如：某某生物"></div>
+        <div><label>统计截止（留空 = 今天 − 3 天）</label><input id="g-end" type="date"></div>
+      </div>
+      <div class="row">
+        <div style="flex:2"><label>品牌词（逗号分隔，留空按域名推）</label><input id="g-brand" placeholder="例如：pakgent, pakgent bio"></div>
+        <div style="flex:0 0 auto;min-width:0"><label>&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:400;white-space:nowrap;padding-top:7px">
+            <input type="checkbox" id="g-ai" checked style="width:auto">AI 写解读</label></div>
+        <div style="flex:0 0 auto;min-width:0"><label>&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:400;white-space:nowrap;padding-top:7px">
+            <input type="checkbox" id="g-push" checked style="width:auto">出飞书文档并推送给我</label></div>
+      </div>
+      <button class="go" id="run-gsc">出 GSC 周报</button>
+      <p class="hint" id="g-note" style="margin:12px 0 0"></p>
+    </div>
+  </section>
+
   <section id="tab-learn" hidden>
     <div class="card">
       <h2>从做过的项目学剔除清单</h2>
@@ -304,6 +329,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="ghost" id="run-check">自检 Google Ads 连接</button>
         <button class="ghost" id="run-llm">自检 LLM 连接</button>
+        <button class="ghost" id="run-gsc-auth">授权 GSC（Search Console）</button>
         <button class="ghost" id="skill-export">⬇ 导出 skill 包</button>
         <button class="ghost" id="skill-import">⬆ 导入 skill 包</button>
         <input type="file" id="skill-zip" accept=".zip" hidden>

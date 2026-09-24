@@ -58,6 +58,7 @@ ENV_MAP = {
     "dataforseo.password": "DATAFORSEO_PASSWORD",
     "feishu.app_id": "FEISHU_APP_ID",
     "feishu.app_secret": "FEISHU_APP_SECRET",
+    "gsc.refresh_token": "GSC_REFRESH_TOKEN",
 }
 
 # 哪些字段算凭据 —— 状态接口只报「有没有」,绝不回传原值

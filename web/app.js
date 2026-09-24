@@ -52,7 +52,7 @@ function showOutbox() {
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['sop', 'ranks', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['sop', 'ranks', 'gsc', 'learn', 'social', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
     $('outbox').hidden = !(outboxTab && outboxTab === b.dataset.tab);
   };
 });
@@ -756,6 +756,33 @@ if ($('skill-export')) {
     } finally { $('skill-zip').value = ''; }
   };
 }
+/* ---------------- GSC 周报 ---------------- */
+async function loadGscSites() {
+  const sel = $('g-site');
+  if (!sel) return;
+  const d = await fetch('/api/gsc/sites').then(r => r.json()).catch(() => null);
+  if (!d || !d.configured) {
+    sel.innerHTML = '<option value="">（先在「设置」页点「授权 GSC」）</option>';
+    $('g-note').textContent = '还没授权 Search Console：去「设置」页点「授权 GSC」，用能在 GSC 里看到客户资源的 Google 账号登录。';
+    return;
+  }
+  if (d.error) { $('g-note').textContent = d.error; return; }
+  sel.innerHTML = '<option value="">（选一个资源）</option>' +
+    d.sites.map(x => `<option value="${x.site}">${x.site}　${x.permission}</option>`).join('');
+  $('g-note').textContent = '这个账号能看到 ' + d.sites.length + ' 个资源。sc-domain: 开头的是域名资源（含全部子域和协议），优先选它。';
+}
+if ($('g-reload')) $('g-reload').onclick = e => { e.preventDefault(); loadGscSites(); };
+if ($('run-gsc')) $('run-gsc').onclick = () => {
+  if (!$('g-site').value) return showErr('先选一个 GSC 资源。');
+  run('/api/gsc/report', {
+    site: $('g-site').value, client: $('g-client').value, end: $('g-end').value,
+    brand: $('g-brand').value, use_ai: $('g-ai').checked, push: $('g-push').checked,
+  }, '出 GSC 周报…');
+};
+if ($('run-gsc-auth')) $('run-gsc-auth').onclick = () => {
+  afterJob = () => loadGscSites();
+  run('/api/gsc/auth', {}, '授权 Search Console（看弹出的浏览器）…');
+};
 $('run-check').onclick = () => run('/api/keywords/check', {}, '自检 Google Ads…');
 $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
 
@@ -771,6 +798,7 @@ $('run-llm').onclick = () => run('/api/llm/check', {}, '自检 LLM…');
   loadProjects(opts);
   skillNote();
   loadBalance();
+  loadGscSites();
   setKwSrc('empty');
   const init = (d.geo || 'US').toUpperCase();
   [T.s].forEach(t => {
