@@ -126,3 +126,11 @@ server:
   # 随便生成一串:python -c "import secrets;print(secrets.token_urlsafe(24))"
   access_token: ""
   open_browser: true
+
+# ---------- 团队版登录(服务器部署才用;本机版不填)----------
+# auth:
+#   mode: "feishu"                       # 飞书网页登录(复用同一个自建应用),不填 = 本机免登
+#   base_url: "https://seo.example.com"  # 部署域名;飞书后台重定向 URL 填 <base_url>/auth/feishu/callback
+#   admin_open_ids: []                   # 管理员:看全部成员的作业/产出,能导入 skill 包
+#   view_all_open_ids: []                # 只看不管:看全部成员的作业/产出,不能做管理操作
+#   allow_open_ids: []                   # 白名单,空 = 企业内所有员工都能登录

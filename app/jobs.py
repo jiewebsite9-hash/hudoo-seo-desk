@@ -92,7 +92,7 @@ def get(job_id):
 def visible(job):
     """飞书模式:只看自己发起的作业,管理员看全部。本机模式不限制。"""
     u = userctx.get_user()
-    if u is None or u.get("admin"):
+    if u is None or u.get("admin") or u.get("view_all"):
         return True
     return bool(job.user) and job.user.get("open_id") == u.get("open_id")
 

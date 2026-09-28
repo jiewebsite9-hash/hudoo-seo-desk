@@ -49,6 +49,14 @@ def redirect_uri():
     return base_url() + "/auth/feishu/callback"
 
 
+def view_all_ids():
+    """只看不管:能看全部成员的作业和产出,但不能导入 skill 等管理操作。"""
+    ids = config.get("auth.view_all_open_ids") or []
+    if isinstance(ids, str):
+        ids = [x.strip() for x in ids.split(",")]
+    return {i for i in ids if i}
+
+
 def admin_ids():
     ids = config.get("auth.admin_open_ids") or []
     if isinstance(ids, str):
@@ -94,6 +102,7 @@ def session_user(sid):
             return None
     s = dict(s)
     s["admin"] = s.get("open_id") in admin_ids()
+    s["view_all"] = s["admin"] or s.get("open_id") in view_all_ids()
     return s
 
 

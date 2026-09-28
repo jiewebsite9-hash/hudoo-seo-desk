@@ -815,9 +815,9 @@ async function loadMe() {
   ME = await fetch('/api/me').then(r => r.json()).catch(() => null);
   const el = $('me');
   if (!ME || ME.mode !== 'feishu' || !el) return;
-  el.innerHTML = `${ME.name}${ME.admin ? '（管理员）' : ''}　<a href="/auth/logout">退出</a>`;
+  el.innerHTML = `${ME.name}${ME.admin ? '（管理员）' : (ME.view_all ? '（可看全员）' : '')}　<a href="/auth/logout">退出</a>`;
   el.hidden = false;
-  if (ME.admin) $('m-all-wrap').style.display = '';
+  if (ME.admin || ME.view_all) $('m-all-wrap').style.display = '';
 }
 async function loadMine() {
   const tbl = $('m-tbl');

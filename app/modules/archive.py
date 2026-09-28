@@ -233,9 +233,12 @@ def record(kind, title, client="", operator="", doc_url=None, sheet_url=None, fi
     _ensure_field(tok, base, table, "操作人ID")
     # 文档是机器人建的,操作人默认看不到 —— 给他开编辑权(业主在建文档时已经开过)
     if oid and doc_url:
-        t, kind = _token_of(doc_url)
+        # 变量名别叫 kind —— 曾把参数 kind 覆盖成 "docx",服务器上所有记录都成了「其他」
+        t, typ = _token_of(doc_url)
         if t:
-            grant(tok, t, kind, [oid], "edit", log)
+            grant(tok, t, typ, [oid], "edit", log)
+    if kind not in KINDS:
+        log("  产出类型「%s」不在清单里,记为「其他」" % kind)
     link = lambda u, t: {"link": u, "text": t} if u else None
     f = {"标题": title, "类型": kind if kind in KINDS else "其他", "客户": client or "",
          "操作人": operator or "", "时间": int(dt.datetime.now().timestamp() * 1000),

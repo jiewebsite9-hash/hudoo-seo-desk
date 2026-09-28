@@ -193,12 +193,13 @@ class Handler(BaseHTTPRequestHandler):
             u = userctx.get_user()
             return self._json({"mode": "feishu" if auth_feishu.enabled() else "local",
                                "name": (u or {}).get("name"), "admin": bool(u and u.get("admin")),
+                               "view_all": bool(u and u.get("view_all")),
                                "avatar": (u or {}).get("avatar")})
 
         if p == "/api/archive":
             from app.modules import archive
             u = userctx.get_user()
-            everyone = (u is None) or (u.get("admin") and (q.get("all") or [""])[0] == "1")
+            everyone = (u is None) or (u.get("view_all") and (q.get("all") or [""])[0] == "1")
             try:
                 rows = archive.list_records(None if everyone else u.get("open_id"))
             except Exception as e:
