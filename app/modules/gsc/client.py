@@ -130,14 +130,19 @@ def sites():
     return out
 
 
-def query(site, start, end, dimensions, row_limit=25000, filters=None):
-    """searchAnalytics.query,自动翻页。返回 [{keys, clicks, impressions, ctr, position}]。"""
+def query(site, start, end, dimensions, row_limit=25000, filters=None, data_state="all"):
+    """searchAnalytics.query,自动翻页。返回 [{keys, clicks, impressions, ctr, position}]。
+
+    **dataState 默认 all**:接口默认是 final,会悄悄排除最近 2 天未定稿的数据,
+    和 GSC 后台对不上(后台图上虚线那段就是未定稿)。要找出哪几天未定稿,传 "final" 再比一次。
+    """
     tok = access_token()
     url = "%s/sites/%s/searchAnalytics/query" % (API, urllib.parse.quote(site, safe=""))
     rows, start_row = [], 0
     while True:
         body = {"startDate": start, "endDate": end, "dimensions": dimensions,
-                "rowLimit": min(row_limit, 25000), "startRow": start_row}
+                "rowLimit": min(row_limit, 25000), "startRow": start_row,
+                "type": "web", "dataState": data_state}
         if filters:
             body["dimensionFilterGroups"] = [{"filters": filters}]
         d = _call("POST", url, tok, body)

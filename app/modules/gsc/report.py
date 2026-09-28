@@ -139,9 +139,16 @@ def markdown(facts, text, client_name):
         L.append("| %s | %s | %s | %s | %s | %s |" % (s["指标"], _fmt(s["本周"], s["指标"]), _fmt(s["上周"], s["指标"]), s["环比"], s["判定"], note[s["指标"]]))
     sm = facts.get("sitemaps") or []
     submitted = sum(x["submitted"] for x in sm)
+    notes = []
+    if w.get("fresh"):
+        notes.append("%s 为 GSC 未定稿数据（后台图上的虚线段），数字之后 2–3 天还会上调，本周环比可能偏低，判定仅供参考。"
+                     % "、".join(d[5:].replace("-", ".") for d in w["fresh"]))
+    if w.get("days", 7) < 7:
+        notes.append("本周只有 %d 天有数据，和上周 7 天对比会偏低。" % w["days"])
     L.append("| 已收录页面数 | 【】 | 【】 | 【±x】 | 【】 | 页面索引报告手填；sitemap 已提交 %s 条 |" % (submitted if sm else "—"))
     L.append("| 真实询盘数 | 【】 | 【】 | 【±x 条】 | 【】 | 表单后台，已剔除垃圾询盘 |")
     L += ["",
+          *(["> ⚠ " + n for n in notes] + [""] if notes else []),
           "> 判定规则：±10% 以内正常；10%–30% 关注（须下钻到词 / 页）；≥30% 或连续 2 周同向为异常；指标方向相反为背离；周点击 <100 为小样本，不定级、看绝对数。",
           "", "### 数据解读", "",
           "**① 发生了什么**：" + text["what"], "",
@@ -198,7 +205,7 @@ def markdown(facts, text, client_name):
           "| 事项 | 需要客户做什么 | 不做的影响 | 截止 |", "|---|---|---|---|",
           "| 【本周无 / 事项】 | 【】 | 【】 | 【】 |", "",
           "---", "",
-          "数据口径：流量与排名来自 Google Search Console，与第三方工具存在正常差异；GSC 数据约滞后 2–3 天，本期统计区间为 %s 至 %s（对比 %s 至 %s）。平均排名为曝光加权平均。真实询盘＝经人工判定的有效商业询盘。"
+          "数据口径：流量与排名来自 Google Search Console，与第三方工具存在正常差异；GSC 数据约滞后 2–3 天，本期统计区间为 %s 至 %s（对比 %s 至 %s），口径与 GSC 后台一致（含未定稿数据）。平均排名为曝光加权平均。真实询盘＝经人工判定的有效商业询盘。"
           % (w["start"], w["end"], w["prev_start"], w["prev_end"])]
     if facts["country"] or facts["device"]:
         L += ["", "附：本周点击按国家 / 设备 —— " +

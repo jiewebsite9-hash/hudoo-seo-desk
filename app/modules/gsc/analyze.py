@@ -138,6 +138,9 @@ def weekly(site, end=None, brand=None, log=None):
     # ---- 逐日 21 天:三周的账号级指标 ----
     daily = client.query(site, _iso(wp[0]), _iso(w1[1]), ["date"])
     by_day = {r["keys"][0]: r for r in daily}
+    # 未定稿的日子:含未定稿(all)里有、已定稿(final)里还没有 —— 数字之后 2–3 天还会上调
+    final_days = {r["keys"][0] for r in client.query(site, _iso(w1[0]), _iso(w1[1]), ["date"], data_state="final")}
+    fresh = sorted(d for d in by_day if _iso(w1[0]) <= d <= _iso(w1[1]) and d not in final_days)
 
     def wrows(w):
         return [by_day[_iso(w[0] + dt.timedelta(days=i))] for i in range(7)
@@ -148,6 +151,10 @@ def weekly(site, end=None, brand=None, log=None):
     log("本周 %d 天有数据:点击 %d,曝光 %d,CTR %.2f%%,平均排名 %.1f"
         % (days_cur, cur["clicks"], cur["impressions"], cur["ctr"], cur["position"]))
     small = cur["clicks"] < 100 or prev["clicks"] < 100
+    if days_cur < 7:
+        log("[当心] 本周只有 %d 天有数据(GSC 还没出后面几天),和上周 7 天比会偏低" % days_cur)
+    if fresh:
+        log("[当心] %s 为 GSC 未定稿数据,与后台一致,但之后 2–3 天还会上调;环比可能偏低" % "、".join(d[5:] for d in fresh))
 
     snapshot = []
     for key, cn in (("impressions", "曝光"), ("clicks", "点击"), ("ctr", "CTR"), ("position", "平均排名")):
@@ -214,7 +221,7 @@ def weekly(site, end=None, brand=None, log=None):
 
     return {
         "site": site, "window": {"start": _iso(w1[0]), "end": _iso(w1[1]), "prev_start": _iso(w0[0]),
-                                 "prev_end": _iso(w0[1]), "days": days_cur},
+                                 "prev_end": _iso(w0[1]), "days": days_cur, "fresh": fresh},
         "cur": cur, "prev": prev, "prev2": prev2, "small": small,
         "snapshot": snapshot, "diverge": diverge,
         "levels": [s["判定"] for s in snapshot],
