@@ -18,10 +18,17 @@ MIN_ABS = 3        # 点击差值小于这个数的词不当「变动」看
 
 
 def windows(end=None):
-    """返回 (本周, 上周, 上上周) 三个 (起, 止) 日期对,各 7 天。"""
+    """返回 (本周, 上周, 上上周) 三个 (起, 止) 日期对,各连续 7 天(含周末)。
+
+    end 留空 = 上一个完整自然周的周日,即统计「上周一至周日」—— 周报每周一发上周数据,
+    要和在 GSC 后台选「周一 ~ 周日」对得上。以前默认「今天 − 3 天」,周一出报告会得到
+    上周五到本周四,跨两周,和后台对不上。今天是周日时取的是上周,不取今天这周(还没过完)。
+    """
     if isinstance(end, str) and end:
         end = dt.date.fromisoformat(end)
-    end = end or (dt.date.today() - dt.timedelta(days=LAG))
+    if not end:
+        today = dt.date.today()
+        end = today - dt.timedelta(days=today.weekday() + 1)      # 上一个周日
     w1 = (end - dt.timedelta(days=6), end)
     w0 = (w1[0] - dt.timedelta(days=7), w1[0] - dt.timedelta(days=1))
     wp = (w0[0] - dt.timedelta(days=7), w0[0] - dt.timedelta(days=1))
@@ -132,8 +139,8 @@ def weekly(site, end=None, brand=None, log=None):
     """拉数 + 算完。返回 facts(纯数字与列表,给出稿和 AI 用)。"""
     log = log or (lambda m: None)
     w1, w0, wp = windows(end)
-    log("统计区间:本周 %s ~ %s,上周 %s ~ %s(GSC 数据滞后约 %d 天,已避开)"
-        % (_iso(w1[0]), _iso(w1[1]), _iso(w0[0]), _iso(w0[1]), LAG))
+    log("统计区间:本周 %s ~ %s,上周 %s ~ %s(连续 7 天,含周末)"
+        % (_iso(w1[0]), _iso(w1[1]), _iso(w0[0]), _iso(w0[1])))
 
     # ---- 逐日 21 天:三周的账号级指标 ----
     daily = client.query(site, _iso(wp[0]), _iso(w1[1]), ["date"])
