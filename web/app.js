@@ -761,6 +761,19 @@ if ($('skill-export')) {
   };
 }
 /* ---------------- GSC 周报 ---------------- */
+let GSC_SITES = [];
+/* 资源多了下拉难找:按搜索框过滤,不区分大小写,空格分开的多个词都要命中;只剩一个就直接选中 */
+function filterGscSites() {
+  const sel = $('g-site'), q = ($('g-q') ? $('g-q').value : '').trim().toLowerCase();
+  const keep = sel.value;
+  const hit = GSC_SITES.filter(x => q.split(/\s+/).every(t => x.site.toLowerCase().includes(t)));
+  sel.innerHTML = '<option value="">' + (q ? `（匹配 ${hit.length} / ${GSC_SITES.length} 个）` : '（选一个资源）') + '</option>' +
+    hit.map(x => `<option value="${x.site}">${x.site}　${x.permission}</option>`).join('');
+  if (hit.length === 1) sel.value = hit[0].site;
+  else if (hit.some(x => x.site === keep)) sel.value = keep;
+}
+if ($('g-q')) $('g-q').addEventListener('input', filterGscSites);
+
 async function loadGscSites() {
   const sel = $('g-site');
   if (!sel) return;
@@ -771,8 +784,8 @@ async function loadGscSites() {
     return;
   }
   if (d.error) { $('g-note').textContent = d.error; return; }
-  sel.innerHTML = '<option value="">（选一个资源）</option>' +
-    d.sites.map(x => `<option value="${x.site}">${x.site}　${x.permission}</option>`).join('');
+  GSC_SITES = d.sites;
+  filterGscSites();
   $('g-note').textContent = '这个账号能看到 ' + d.sites.length + ' 个资源。sc-domain: 开头的是域名资源（含全部子域和协议），优先选它。';
 }
 if ($('g-reload')) $('g-reload').onclick = e => { e.preventDefault(); loadGscSites(); };
