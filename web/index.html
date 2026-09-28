@@ -111,6 +111,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 </header>
 
 <nav>
+  <button data-tab="industry">行业速通</button>
   <button data-tab="sop" class="active">拓词</button>
   <button data-tab="ranks">排名监控</button>
   <button data-tab="gsc">GSC 周报</button>
@@ -122,6 +123,28 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 
 <main>
   <div class="err" id="err"></div>
+
+<section id="tab-industry" hidden>
+  <div class="card">
+    <h2>行业速通</h2>
+    <p class="hint">接新客户先跑这个：给官网，程序抓官网 + 跑 10 次左右 Google 搜索 + 抓 2–3 家竞品首页，AI 按《行业速通》skill 的 10 模块模板写一份内部学习文档（30 秒速览 / 品类地图 / 用户画像 / 竞争格局 / 术语表 / 待验证清单 / 营销切入点），每条带 [官网] [行业] [推断] [待验证] 标记。出完建飞书文档、推送给你。一份约 $0.03（搜索）+ AI 费用，5–10 分钟。</p>
+    <div class="row">
+      <div style="flex:2"><label>客户官网 / 公司名 / 行业名</label><input id="i-input" placeholder="例如：https://www.example.com（官网最准）"></div>
+      <div><label>输入类型</label>
+        <select id="i-kind"><option value="auto">自动判断</option><option value="site">官网 URL</option><option value="company">公司名（先搜官网）</option><option value="industry">行业名（找同行做锚点）</option></select></div>
+      <div><label>目标市场（搜索用）</label>
+        <select id="i-market"><option value="us">美国</option><option value="gb">英国</option><option value="de">德国</option><option value="au">澳大利亚</option><option value="ca">加拿大</option><option value="in">印度</option></select></div>
+    </div>
+    <div class="row">
+      <div style="flex:1.2"><label>客户名（文档标题用，留空按官网）</label><input id="i-client" placeholder="例如：某某传动"></div>
+      <div style="flex:0 0 auto;min-width:0"><label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:400;white-space:nowrap;padding-top:7px">
+          <input type="checkbox" id="i-push" checked style="width:auto">出飞书文档并推送给我</label></div>
+    </div>
+    <button class="go" id="run-industry">出行业速通</button>
+    <p class="hint" style="margin:12px 0 0">文档是互旦内部学习材料，不是给客户的交付物。[推断] 对外要留余地；[待验证] 只能拿去问客户，不能当事实。</p>
+  </div>
+</section>
 
 <section id="tab-sop">
     <div class="card">
@@ -374,6 +397,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
       <a class="dl" id="dl" href="#">下载 CSV</a>
       <a class="dl" id="dlx" href="#" hidden>下载 xlsx 工作簿（4 张表）</a>
       <a class="dl" id="dldoc" href="#" target="_blank" hidden>打开飞书文档</a>
+      <a class="dl" id="dlmd" href="#" hidden>下载 Markdown</a>
       <a class="dl" id="dlsheet" href="#" target="_blank" hidden>飞书在线表格</a>
       <span class="ver" id="trunc"></span>
       <span class="ver" id="stats" style="margin-left:auto"></span>

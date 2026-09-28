@@ -548,6 +548,18 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("出 GSC 周报", run).id})
 
+        if p == "/api/industry/study":
+            inp = (b.get("input") or "").strip()
+            if not inp:
+                return self._json({"error": "先给一个客户官网、公司名或行业名。"}, 400)
+            kind = (b.get("kind") or "auto").strip()
+            market = (b.get("market") or "us").strip().lower() or "us"
+
+            def run(j):
+                return _industry_study(j, inp, kind, market, (b.get("client") or "").strip(), bool(b.get("push", True)))
+
+            return self._json({"job": jobs.start("行业速通", run).id})
+
         if p == "/api/ranks/report":
             # 拿最近一轮结果出飞书文档 + 私聊链接,不重新检查
             domain = (b.get("domain") or "").strip()
@@ -936,6 +948,48 @@ def _strip_header(rows):
 
 def _site_name(site):
     return site.replace("sc-domain:", "").replace("https://", "").replace("http://", "").strip("/")
+
+
+def _industry_study(j, inp, kind, market, client, push):
+    """行业速通:抓官网 → 搜索 → LLM 按 skill 模板写 → markdown 落盘 → 飞书文档 → 归档 → 私聊。"""
+    from app.modules.industry import study
+    from app.modules.ranks import feishu
+    from app.modules.social import feishu_docs
+    r = study.build(inp, kind=kind, market=market, log=j.log)
+    path = config.out_dir() / r["filename"]
+    path.write_text(r["md"], encoding="utf-8")
+    j.log("已导出 %s" % path.name)
+    title = r["title"] if not client else "行业速通：%s（%s）" % (r["prof"]["industry_zh"], client)
+    url = None
+    if feishu_docs.configured():
+        folder = config.get("industry.folder_token") or config.get("social.folder_token") or None
+        owner = config.get("social.owner_open_id") or None
+        try:
+            url = feishu_docs.create(r["md"], title, folder_token=folder, owner_open_id=owner, log=j.log)["url"]
+        except Exception as e:
+            j.log("建飞书文档失败(%s: %s);markdown 已导出,可手动上传" % (type(e).__name__, e))
+    if url and config.get("archive.enabled", True):
+        from app.modules import archive
+        archive.safe(archive.record, "行业速通", title, client=client or r["prof"]["company"], operator=archive.operator(),
+                     doc_url=url, cost=r["cost"],
+                     note="%d 字;搜索 %d 次%s" % (r["stats"]["字数"], r["stats"]["搜索次数"],
+                                              ";缺 " + "、".join(r["missing"]) if r["missing"] else ""), log=j.log)
+    if push:
+        # 私聊只发「30 秒速览」那几行 + 链接,正文在文档里
+        m = re.search(r"## 30 秒速览\s*\n(.*?)(?=\n#|\n---)", r["md"], re.S)
+        brief = [l.strip() for l in (m.group(1) if m else "").splitlines() if l.strip()][:8]
+        msg = ["【行业速通】" + title] + brief
+        if r["missing"]:
+            msg.append("⚠ 文档缺少:" + "、".join(r["missing"]) + ",请人工补")
+        if url:
+            msg.append("文档:" + url)
+        try:
+            feishu.push("\n".join(msg), log=j.log)
+        except Exception as e:
+            j.log("推送失败:%s" % str(e)[:160])
+    rows = [{"项目": k, "值": v} for k, v in r["stats"].items()]
+    return {"preview": rows, "count": len(rows), "stats": r["stats"], "doc_url": url, "md_file": path.name,
+            "truncated": False}
 
 
 def _gsc_report(j, site, client_name, end, brand, use_ai, push):

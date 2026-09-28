@@ -53,7 +53,7 @@ function showOutbox() {
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['sop', 'ranks', 'gsc', 'learn', 'social', 'mine', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['industry', 'sop', 'ranks', 'gsc', 'learn', 'social', 'mine', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
     $('outbox').hidden = !(outboxTab && outboxTab === b.dataset.tab);
   };
 });
@@ -166,6 +166,8 @@ function render(res) {
   else dl.hidden = true;
   const dd = $('dldoc');
   if (dd) { if (res.doc_url) { dd.href = res.doc_url; dd.hidden = false; } else dd.hidden = true; }
+  const dm = $('dlmd');
+  if (dm) { if (res.md_file) { dm.href = '/api/download?file=' + encodeURIComponent(res.md_file); dm.hidden = false; } else dm.hidden = true; }
   const ds = $('dlsheet');
   if (ds) { if (res.sheet_url) { ds.href = res.sheet_url; ds.hidden = false; } else ds.hidden = true; }
   const xl = $('dlx');
@@ -789,6 +791,13 @@ async function loadGscSites() {
   $('g-note').textContent = '这个账号能看到 ' + d.sites.length + ' 个资源。sc-domain: 开头的是域名资源（含全部子域和协议），优先选它。';
 }
 if ($('g-reload')) $('g-reload').onclick = e => { e.preventDefault(); loadGscSites(); };
+if ($('run-industry')) $('run-industry').onclick = () => {
+  if (!$('i-input').value.trim()) return showErr('先给一个客户官网、公司名或行业名。');
+  run('/api/industry/study', {
+    input: $('i-input').value, kind: $('i-kind').value, market: $('i-market').value,
+    client: $('i-client').value, push: $('i-push').checked,
+  }, '出行业速通…');
+};
 if ($('run-gsc')) $('run-gsc').onclick = () => {
   if (!$('g-site').value) return showErr('先选一个 GSC 资源。');
   run('/api/gsc/report', {
