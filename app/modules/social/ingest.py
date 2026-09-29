@@ -67,9 +67,17 @@ def _fix_zip_name(info):
     if info.flag_bits & 0x800:      # EFS 已置位,zipfile 已按 UTF-8 解好
         return name
     try:
-        return name.encode("cp437").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
+        raw = name.encode("cp437")
+    except UnicodeEncodeError:
         return name
+    # Mac 压缩的是 UTF-8;Windows 资源管理器 / WinRAR / 360 压缩的是 GBK(团队全是 Windows,
+    # 这才是常态)—— 都不置标志位。UTF-8 校验严格,先试它,不是再按 GBK 解;都不是才原样返回。
+    for enc in ("utf-8", "gb18030"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return name
 
 
 def read_upload(raw, filename):
