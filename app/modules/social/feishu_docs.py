@@ -10,6 +10,7 @@ import_tasks 会直接 403(1061004)。三步:
 建完可选:给指定人加编辑权 + 挪进指定文件夹。
 """
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -159,11 +160,85 @@ def create(markdown, title, folder_token=None, owner_open_id=None, log=None):
                   {"member_type": "openid", "member_id": owner_open_id, "perm": "edit"})
         log("授权编辑权：%s" % ("成功" if r.get("code") == 0 else r.get("msg")))
     share_tenant(tok, doc_id, "docx", log)
+    grant_managers(tok, doc_id, "docx", log)
 
     return {"doc_token": doc_id, "url": url}
 
 
 LINK_SHARE = {"tenant_editable": "组织内获得链接的人可编辑", "tenant_readable": "组织内获得链接的人可阅读"}
+
+
+_MGR = {"t": 0.0, "key": None, "ids": []}
+
+
+def manager_ids(tok, log=None):
+    """config feishu.manage_departments 里各部门(含子部门)的在职成员 open_id。缓存 1 小时。
+
+    飞书不允许应用把整个部门加为协作者(1063001),只能按人加;所以部门新来的人
+    只对之后生成的文档有管理权,老文档要补跑一次。
+    """
+    names = config.get("feishu.manage_departments") or []
+    if isinstance(names, str):
+        names = [x.strip() for x in names.split(",") if x.strip()]
+    key = tuple(names)
+    if not names:
+        return []
+    if _MGR["key"] == key and time.time() - _MGR["t"] < 3600:
+        return list(_MGR["ids"])
+    r = _call("GET", "/contact/v3/departments/0/children?department_id_type=open_department_id"
+                     "&fetch_child=true&page_size=50", tok)
+    deps = [d for d in (r.get("data") or {}).get("items", []) if d.get("name") in names]
+    ods = [d["open_department_id"] for d in deps]
+    # 子部门:parent 在已选部门里的也算
+    allds = (r.get("data") or {}).get("items", [])
+    grew = True
+    while grew:
+        grew = False
+        for d in allds:
+            if d.get("parent_department_id") in ods and d["open_department_id"] not in ods:
+                ods.append(d["open_department_id"])
+                grew = True
+    missing = set(names) - {d.get("name") for d in deps}
+    if missing and log:
+        log("没找到部门:%s(看 feishu.manage_departments 的写法)" % "、".join(missing))
+    ids = []
+    for od in ods:
+        pt = ""
+        while True:
+            m = _call("GET", "/contact/v3/users/find_by_department?department_id=%s&department_id_type="
+                             "open_department_id&page_size=50%s" % (od, "&page_token=" + pt if pt else ""), tok)
+            d = m.get("data") or {}
+            for u in d.get("items", []):
+                if not (u.get("status") or {}).get("is_resigned") and u["open_id"] not in ids:
+                    ids.append(u["open_id"])
+            if not d.get("has_more"):
+                break
+            pt = d.get("page_token")
+    _MGR.update({"t": time.time(), "key": key, "ids": ids})
+    return list(ids)
+
+
+def grant_managers(tok, token, typ, log=None):
+    """给 manage_departments 的成员开「可管理」。已是协作者的改成可管理。失败只写日志。"""
+    log = log or (lambda m: None)
+    try:
+        ids = manager_ids(tok, log)
+    except Exception as e:
+        log("读部门成员失败,管理权限没开:%s" % e)
+        return 0
+    ok = 0
+    for oid in ids:
+        r = _call("POST", "/drive/v1/permissions/%s/members?type=%s&need_notification=false" % (token, typ), tok,
+                  {"member_type": "openid", "member_id": oid, "perm": "full_access"})
+        if r.get("code") != 0:     # 已是协作者(比如操作人先拿了编辑权):改成可管理
+            r = _call("PUT", "/drive/v1/permissions/%s/members/%s?type=%s&member_type=openid&need_notification=false"
+                      % (token, oid, typ), tok, {"member_type": "openid", "perm": "full_access"})
+        ok += r.get("code") == 0
+    if ids:
+        log("管理权限:%d/%d 人(%s)" % (ok, len(ids), "、".join(config.get("feishu.manage_departments") or [])
+                                        if not isinstance(config.get("feishu.manage_departments"), str)
+                                        else config.get("feishu.manage_departments")))
+    return ok
 
 
 def share_tenant(tok, token, typ, log=None):

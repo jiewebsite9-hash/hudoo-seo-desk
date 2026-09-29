@@ -42,6 +42,8 @@ feishu:
   receive_id: ""           # 接收消息的 open_id
   tenant_url: ""           # 你们飞书租户的地址，如 https://your-company.feishu.cn
                            # 只用来拼生成文档的链接；留空会退回通用域名
+  link_share: "tenant_editable"   # 工作台生成的文档:组织内获得链接的人可编辑;tenant_readable / off
+  manage_departments: []          # 这些部门的在职成员对生成的文档有「可管理」权限,如 ["某某部"]
 
 # ---------- 社媒周报(第 5 期启用)----------
 # 周报生成后可以直接建成飞书云文档。留空则只在本地导出 markdown。
