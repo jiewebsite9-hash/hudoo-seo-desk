@@ -201,6 +201,7 @@ def publish_table(xlsx_path, title, open_ids, log=None, max_rows=5000):
     tenant = fd.doc_url("x").rsplit("/docx/", 1)[0]
     ft = _upload(tok, xlsx_path, folder)
     grant(tok, ft, "file", open_ids, "view", log)
+    fd.share_tenant(tok, ft, "file", log)
     file_url = "%s/file/%s" % (tenant, ft)
     wb = load_workbook(xlsx_path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
@@ -217,6 +218,7 @@ def publish_table(xlsx_path, title, open_ids, log=None, max_rows=5000):
         _ok(fd._call("PUT", "/sheets/v2/spreadsheets/%s/values" % st, tok,
                      {"valueRange": {"range": rng, "values": chunk}}), "写在线表格")
     grant(tok, st, "sheet", open_ids, "view", log)
+    fd.share_tenant(tok, st, "sheet", log)
     log("在线表格 %d 行已建;xlsx 已上传" % (len(rows) - 1))
     return d["spreadsheet"]["url"], file_url
 

@@ -158,8 +158,30 @@ def create(markdown, title, folder_token=None, owner_open_id=None, log=None):
                   % doc_id, tok,
                   {"member_type": "openid", "member_id": owner_open_id, "perm": "edit"})
         log("授权编辑权：%s" % ("成功" if r.get("code") == 0 else r.get("msg")))
+    share_tenant(tok, doc_id, "docx", log)
 
     return {"doc_token": doc_id, "url": url}
+
+
+LINK_SHARE = {"tenant_editable": "组织内获得链接的人可编辑", "tenant_readable": "组织内获得链接的人可阅读"}
+
+
+def share_tenant(tok, token, typ, log=None):
+    """打开链接分享:组织内获得链接的人可编辑(默认)。只在组织内,不碰对外分享。
+
+    config feishu.link_share 可改成 tenant_readable,或 off 不开。失败只写日志。
+    """
+    log = log or (lambda m: None)
+    mode = str(config.get("feishu.link_share", "tenant_editable") or "off")
+    if mode not in LINK_SHARE:
+        return False
+    body = {"link_share_entity": mode, "share_entity": "same_tenant"}
+    if mode == "tenant_editable":
+        body.update({"security_entity": "anyone_can_edit", "comment_entity": "anyone_can_edit"})
+    r = _call("PATCH", "/drive/v1/permissions/%s/public?type=%s" % (token, typ), tok, body)
+    ok = r.get("code") == 0
+    log("链接分享:%s" % (LINK_SHARE[mode] if ok else "开启失败(%s)" % r.get("msg")))
+    return ok
 
 
 def move(doc_token, folder_token, log=None):
