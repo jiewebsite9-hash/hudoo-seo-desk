@@ -151,7 +151,8 @@ def group(sheets):
             client = _clean_client(_strip_alias(stem)) or parent or "未分组"
         else:
             plat = _sniff(s)
-            client = parts[-2] if len(parts) >= 2 else "未分组"
+            # 单独上传一个文件、文件名没写平台:客户从文件名取
+            client = parts[-2] if len(parts) >= 2 else (_clean_client(parts[-1]) if parts else "") or "未分组"
         if not plat:
             continue
         out.setdefault((client, plat), []).append(s)
@@ -185,7 +186,9 @@ _DATE_RUN = re.compile(r"[0-9][0-9.\-_/~～至年月日号 ]*")
 
 def _clean_client(name):
     """去掉日期片段和说明词,剩下的当客户名;可能剩空串(调用方再往上一级找)。"""
-    out = _DATE_RUN.sub(" ", str(name or ""))
+    # 文件扩展名可能夹在名字中间(「某客户 .xls LinkedIn周报数据.xls」),不只在末尾
+    out = re.sub(r"(?i)\.(xlsx|xlsm|xls|csv|tsv|txt|zip)\b", " ", str(name or ""))
+    out = _DATE_RUN.sub(" ", out)
     for g in GENERIC:
         out = out.replace(g, " ")
     return re.sub(r"\s+", " ", out).strip(" -_·|()（）[]【】.,，、")
