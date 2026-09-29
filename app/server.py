@@ -392,7 +392,8 @@ class Handler(BaseHTTPRequestHandler):
                       "end": social.metrics.period(analysis["bundles"][k])[1],
                       "posts": analysis["totals"][k].get("posts", 0)}
                      for k in analysis["bundles"] if k[0] == c]
-            clients.append({"client": c, "platforms": plats})
+            clients.append({"client": c, "platforms": plats,
+                            "unknown": social.platforms.unknown_client(c)})
         return self._json({"upload_id": uid, "clients": clients,
                            "issues": analysis["issues"], "log": lines,
                            "feishu_ready": social_feishu_ready()})

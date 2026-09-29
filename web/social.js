@@ -52,7 +52,13 @@ function socRenderResult(r) {
   box.innerHTML = (r.clients || []).map(c => {
     const plats = c.platforms.map(p =>
       '<li>' + esc(p.cn) + '：' + esc(p.start || '—') + ' ~ ' + esc(p.end || '—') +
-      '，本期内容 ' + p.posts + ' 篇</li>').join('');
+      (p.posts == null ? '，作品明细未导出（篇数未知）' : '，本期内容 ' + p.posts + ' 篇') + '</li>').join('');
+    if (c.unknown) {
+      // 认不出客户的组常混着几个客户的文件,出出来的数字是错的,不给出稿
+      return '<div class="kv"><b>' + esc(c.client) + '</b><ul>' + plats + '</ul>' +
+        '<p class="err">没认出客户名，这组文件里可能混了几个客户。请按「客户名/平台/文件」分目录，' +
+        '或在文件名里写上客户名和平台名，重新打包上传。</p></div>';
+    }
     return '<div class="kv"><b>' + esc(c.client) + '</b><ul>' + plats + '</ul>' +
       '<button class="go" data-client="' + esc(c.client) + '">出这份周报</button></div>';
   }).join('');

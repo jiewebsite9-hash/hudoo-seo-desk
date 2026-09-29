@@ -140,8 +140,15 @@ def group(sheets):
         if plat:
             # 平台词嵌在客户目录名里(「某客户linkedin内容访客关注者」)时,客户就是这一层去掉平台词;
             # 纯平台目录(「Facebook」)才取上一级
-            rest = _strip_alias(parts[idx])
+            rest = _clean_client(_strip_alias(parts[idx]))
             client = rest if rest else (parts[idx - 1] if idx >= 1 else "未分组")
+        elif parts and _platform_in_file(parts[-1]):
+            # 平铺命名:所有文件放一个文件夹,客户和平台写在文件名里
+            # (「某客户9.21-9.27LinkedIn周报数据.xls」)。按目录推会把整包算成一个客户。
+            plat = _platform_in_file(parts[-1])
+            stem = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", parts[-1])
+            parent = _clean_client(parts[-2]) if len(parts) >= 2 else ""
+            client = _clean_client(_strip_alias(stem)) or parent or "未分组"
         else:
             plat = _sniff(s)
             client = parts[-2] if len(parts) >= 2 else "未分组"
@@ -167,6 +174,82 @@ def _platform_of(name):
             if (len(k) >= 4 or not k.isascii()) and k in low:
                 return plat
     return None
+
+
+# 客户名里常见的「非客户」成分:周报/数据/导出这类说明词,以及 LinkedIn 三张导出表的名字
+GENERIC = ("周报数据", "月报数据", "周报", "月报", "数据", "报表", "导出", "内容", "访客", "关注者",
+           "粉丝", "动态", "帖子", "视频", "概览", "总览", "汇总")
+# 含数字的日期片段:9.21-9.27 / 0921~0927 / 2026年9月21日 / 20260921
+_DATE_RUN = re.compile(r"[0-9][0-9.\-_/~～至年月日号 ]*")
+
+
+def _clean_client(name):
+    """去掉日期片段和说明词,剩下的当客户名;可能剩空串(调用方再往上一级找)。"""
+    out = _DATE_RUN.sub(" ", str(name or ""))
+    for g in GENERIC:
+        out = out.replace(g, " ")
+    return re.sub(r"\s+", " ", out).strip(" -_·|()（）[]【】.,，、")
+
+
+def unknown_client(name):
+    """认不出客户:「未分组」,或者去掉日期和说明词后什么都不剩(「9.20-9.27」「周报数据」)。
+    这种组里往往混着好几个客户的文件,出出来的周报数字是错的。"""
+    return name == "未分组" or not _clean_client(name)
+
+
+def _platform_in_file(filename):
+    """文件名里含平台全名才算(facebook / linkedin / 领英 …)。fb / ig / yt 这种两三个字母
+    太容易撞上导出文件的普通英文名,文件名这一层不认。"""
+    low = str(filename).lower()
+    for plat, keys in ALIASES.items():
+        for k in keys:
+            if (len(k) >= 4 or not k.isascii()) and k in low:
+                return plat
+    return None
+
+
+_MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+def declared_period(texts, year):
+    """从文件名 / 目录名 / 工作表名里找专员写明的统计区间。
+
+    帖子级导出(Instagram、Facebook「帖子」表)没有日数据,只能按发帖日期推区间 ——
+    一周只发一篇就成了「09-23 ~ 09-23」。文件名里明明写着 9.21-9.27,应该以它为准。
+    返回 (起, 止) 或 None。区间超过 31 天、起晚于止,都当没写。
+    """
+    pats = [
+        (re.compile(r"([A-Za-z]{3})-(\d{1,2})-(20\d{2})_([A-Za-z]{3})-(\d{1,2})-(20\d{2})"), "mdy"),
+        (re.compile(r"(20\d{2})(\d{2})(\d{2})\s*[-~～至_]\s*(20\d{2})(\d{2})(\d{2})"), "ymd8"),
+        (re.compile(r"(20\d{2})[.\-/年](\d{1,2})[.\-/月](\d{1,2})日?\s*[-~～至_]\s*"
+                    r"(?:(20\d{2})[.\-/年])?(\d{1,2})[.\-/月](\d{1,2})"), "ymd"),
+        (re.compile(r"(?<!\d)(\d{1,2})[.月](\d{1,2})日?\s*[-~～至_]\s*(\d{1,2})[.月](\d{1,2})日?(?!\d)"), "md"),
+    ]
+    found = []
+    for t in texts:
+        for rx, kind in pats:
+            for m in rx.finditer(str(t or "")):
+                g = m.groups()
+                try:
+                    if kind == "mdy":
+                        a = dt.date(int(g[2]), _MON.index(g[0].lower()) + 1, int(g[1]))
+                        b = dt.date(int(g[5]), _MON.index(g[3].lower()) + 1, int(g[4]))
+                    elif kind == "ymd8":
+                        a = dt.date(int(g[0]), int(g[1]), int(g[2]))
+                        b = dt.date(int(g[3]), int(g[4]), int(g[5]))
+                    elif kind == "ymd":
+                        a = dt.date(int(g[0]), int(g[1]), int(g[2]))
+                        b = dt.date(int(g[3] or g[0]), int(g[4]), int(g[5]))
+                    else:
+                        a = dt.date(year, int(g[0]), int(g[1]))
+                        b = dt.date(year + (1 if int(g[2]) < int(g[0]) else 0), int(g[2]), int(g[3]))
+                except (ValueError, IndexError):
+                    continue
+                if a <= b and (b - a).days <= 31:
+                    found.append((a.isoformat(), b.isoformat()))
+    if not found:
+        return None
+    return max(set(found), key=found.count)
 
 
 def _strip_alias(name):
@@ -211,7 +294,10 @@ def normalize(client, platform, sheets, year_hint=None):
             "audience": {}, "totals": {}, "flags": [], "sources": []}
     for s in sheets:
         data["sources"].append(s.path + (("#" + s.sheet) if s.sheet else ""))
-    fn(data, sheets, year_hint or dt.date.today().year)
+    year = year_hint or dt.date.today().year
+    fn(data, sheets, year)
+    texts = [p for s in sheets for p in s.parts] + [s.sheet for s in sheets if s.sheet]
+    data["declared"] = declared_period(texts, year)
     data["daily"].sort(key=lambda r: r["date"])
     data["posts"].sort(key=lambda r: r.get("date") or "")
     return data
@@ -550,6 +636,8 @@ def _tiktok(data, sheets, year):
                 data["posts"].append(p)
             data["flags"].append("tiktok_content_cumulative")
     data["daily"] = list(daily.values())
+    if "tiktok_content_cumulative" not in data["flags"]:
+        data["flags"].append("tiktok_no_content")
     # 有 Viewers 导出就有真实的日触达,不再提示「没有 reach」
     if any("reach" in r for r in data["daily"]) and "tiktok_no_reach" in data["flags"]:
         data["flags"].remove("tiktok_no_reach")

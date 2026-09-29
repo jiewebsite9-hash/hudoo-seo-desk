@@ -31,6 +31,9 @@ CN = {
 def period(data):
     """(起, 止)。没有日数据的平台(IG)退回用帖子日期,再没有返回 (None, None)。"""
     ds = [r["date"] for r in data.get("daily") or [] if r.get("date")]
+    if not ds and data.get("declared"):
+        # 帖子级导出没有日数据:以文件名 / 工作表名里写明的区间为准,别用发帖日期凑
+        return tuple(data["declared"])
     if not ds:
         ds = [p["date"] for p in data.get("posts") or [] if p.get("date")]
     return (min(ds), max(ds)) if ds else (None, None)
@@ -80,7 +83,8 @@ def totals(data, start=None, end=None):
     posts = [p for p in data.get("posts") or []
              if p.get("date") and (not start or p["date"] >= start)
              and (not end or p["date"] <= end)]
-    out["posts"] = len(posts)
+    # TikTok 只导了概览没导作品明细时,篇数是「不知道」不是 0
+    out["posts"] = None if "tiktok_no_content" in (data.get("flags") or []) else len(posts)
 
     # 没有账号级日数据的平台(Instagram 的导出入口就不给),退回按本期帖子汇总。
     # 注意这是**帖子级累计口径**,platforms 已经打了 flag,checks 会提醒不可横向比。

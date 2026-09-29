@@ -315,9 +315,11 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
     <div class="card">
       <h2>社媒客户周报</h2>
       <p class="hint">
-        把各平台后台导出的数据打成一个压缩包上传，按 <b>客户名 / 平台名 / 导出文件</b> 分目录。
-        平台名用 Facebook、Instagram、YouTube、LinkedIn、TikTok。
-        Mac 打的包也能认（文件名乱码会自动还原）。
+        把各平台后台导出的数据打成一个压缩包上传，两种放法都认：
+        ① 按 <b>客户名 / 平台名 / 导出文件</b> 分目录；
+        ② 全放一个文件夹，<b>文件名里写客户名和平台名</b>，如「某客户9.21-9.27LinkedIn周报数据.xls」。
+        平台名用 Facebook、Instagram、YouTube、LinkedIn、TikTok。文件名里的日期（如 9.21-9.27）会当作统计区间。
+        TikTok 请同时导出 Overview 和 Content，只有 Overview 时发布篇数统计不了。
       </p>
       <div id="soc-drop" class="drop">
         <input type="file" id="soc-file" accept=".zip,.csv,.tsv,.txt,.xlsx,.xlsm,.xls" hidden>

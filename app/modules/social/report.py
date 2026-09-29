@@ -49,6 +49,9 @@ CAVEAT = {
         "「互动 ÷ 触达」不是一回事。",
     "yt_reach_not_additive":
         "独立观看者为区间去重值，不可按日相加。",
+    "tiktok_no_content":
+        "TikTok 本次只导出了概览（Overview），没有作品明细（Content），本期发布篇数无法统计，"
+        "表中记为「—」。下期导出时请一并导出 Content。",
 }
 
 
@@ -61,7 +64,8 @@ def analyze(raw, filename, year=None, log=None):
     groups = platforms.group(sheets)
     if not groups:
         raise ingest.IngestError(
-            "没能识别出任何平台。请按「客户名/平台名/导出文件」的目录结构打包，"
+            "没能识别出任何平台。请按「客户名/平台名/导出文件」分目录打包，"
+            "或者把客户名和平台名写进文件名（如「某客户9.21-9.27LinkedIn周报数据.xls」），"
             "平台名用 Facebook / Instagram / YouTube / LinkedIn / TikTok。")
     year = year or _infer_year(groups)
     log("识别出 %d 个 客户×平台（年份口径 %d）" % (len(groups), year))
@@ -73,8 +77,9 @@ def analyze(raw, filename, year=None, log=None):
         s, e = metrics.period(data)
         bundles[key] = data
         totals[key] = metrics.totals(data, s, e)
-        log("  %s / %s：%s~%s，%d 篇内容" % (client, platforms.PLATFORM_CN[plat],
-                                             s or "—", e or "—", totals[key].get("posts", 0)))
+        np = totals[key].get("posts")
+        log("  %s / %s：%s~%s，%s" % (client, platforms.PLATFORM_CN[plat], s or "—", e or "—",
+                                     "作品明细未导出" if np is None else "%d 篇内容" % np))
 
     issues = checks.run(bundles, totals)
     log("口径体检：%d 条（必须处理 %d 条）"
