@@ -100,6 +100,7 @@ def check(domain, keywords=None, gl=None, hl=None, device=None, depth=None,
     hl = hl or (proj or {}).get("hl") or "en"
     device = device or (proj or {}).get("device") or "desktop"
     depth = int(depth or (proj or {}).get("depth") or 3)
+    top_n = depth * 10
 
     conn = storage.connect()
     if only_failed:
