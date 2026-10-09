@@ -273,7 +273,7 @@ def report_markdown(domain):
     get = lambda k, d="": (meta[k] if (meta is not None and k in meta.keys() and meta[k] is not None) else d) if raw else d
     # 库里的 depth 存的是「前几名」(30),不是页数;老记录可能存页数(3),都兼容
     depth = _rank_int(get("depth", 3)) or 3
-    top_n = depth if depth >= 10 else top_n
+    top_n = depth if depth >= 10 else depth * 10
     run_date = (ov.get("cost") or {}).get("run_date") or get("run_date")
     prev_dates = [d for d in ov.get("run_dates") or [] if d != run_date]
     prev_date = prev_dates[0] if prev_dates else None
