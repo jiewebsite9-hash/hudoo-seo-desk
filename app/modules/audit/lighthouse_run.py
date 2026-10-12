@@ -41,7 +41,8 @@ def run(cfg, log=print):
             v = a.get(aid, {}).get("numericValue")
             row[key] = round(v, 3) if key == "CLS" and v is not None else (round(v) if v is not None else None)
         row["lcp_element"] = (a.get("largest-contentful-paint-element", {}).get("details", {}) or {}).get("items", [{}])
-        row["lcp_element"] = json.dumps(row["lcp_element"], ensure_ascii=False)[:300]
+        snip = re.search(r'"snippet":\s*"((?:[^"\\]|\\.)*)"', json.dumps(row["lcp_element"], ensure_ascii=False))
+        row["lcp_element"] = json.loads('"%s"' % snip.group(1))[:200] if snip else ""
         row["seo_fails"] = [a[x["id"]]["title"] for x in rep["categories"]["seo"]["auditRefs"]
                             if x["id"] in a and a[x["id"]].get("score") is not None and a[x["id"]]["score"] < 1]
         row["lighthouse_version"] = rep.get("lighthouseVersion")

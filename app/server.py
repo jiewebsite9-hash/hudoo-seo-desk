@@ -1011,47 +1011,66 @@ def _industry_study(j, inp, kind, market, client, push):
 
 
 def _seo_audit(j, base, brand, max_pages, lighthouse, only_report, client, push):
-    """SEO 审计:抓取取证 + 30 项打分 + 基线对比 -> xlsx -> 在线表格(基线总览页) + 产出记录 + 私聊。"""
+    """SEO 审计:抓取取证 → 规则引擎出 P0/P1/P2 初稿 → 在线表格(逐页明细)→ 飞书报告文档 → 产出记录 → 私聊。"""
+    import collections
     from app.modules.audit import pipeline
     r = pipeline.build(base, brand=brand, max_pages=max_pages, lighthouse=lighthouse,
                        only_report=only_report, log=j.log)
-    s = r["summary"]
-    xlsx = r["xlsx"]
+    s, xlsx = r["summary"], r["xlsx"]
     j.log("已导出 %s" % xlsx.name)
-    title = "SEO审计 %s%s %s" % ((client + " ") if client else "", r["site"], r["date"])
-    sheet_url = file_url = None
+    rnd = "复审" if r["prev"] else "首轮"
+    date = "%s-%s-%s" % (r["date"][:4], r["date"][4:6], r["date"][6:])
+    who = (client + " ") if client else ""
+    sheet_url = file_url = doc_url = None
     if config.get("archive.enabled", True):
         from app.modules import archive
-        got = archive.safe(archive.publish_table, xlsx, title, archive.viewers(), log=j.log)
+        got = archive.safe(archive.publish_table, xlsx, "%s%s 逐页明细(%s %s)" % (who, r["site"], date, rnd),
+                           archive.viewers(), log=j.log)
         if got:
             sheet_url, file_url = got
-            avg = s.get("Onpage 平均分-全站")
-            archive.safe(archive.record, "SEO审计", title, client=client or r["site"], operator=archive.operator(),
-                         sheet_url=sheet_url, file_url=file_url,
-                         note="%s 页;On-page 全站均分 %s/30;对比基线 %s" % (s.get("HTML 200 页数"), avg, r["prev"] or "无"),
-                         log=j.log)
+    md = pipeline.report_md(r, sheet_url=sheet_url, client=client)
+    md_path = config.out_dir() / ("SEO审计报告_%s_%s.md" % (r["site"], r["date"]))
+    md_path.write_text(md, encoding="utf-8")
+    j.log("已导出 %s" % md_path.name)
+    title = "%s%s SEO 审计报告(%s %s)" % (who, r["site"], date, rnd)
+    from app.modules.social import feishu_docs
+    if feishu_docs.configured():
+        folder = (config.get("audit.folder_token") or config.get("industry.folder_token")
+                  or config.get("social.folder_token") or None)
+        try:
+            doc_url = feishu_docs.create(md, title, folder_token=folder,
+                                         owner_open_id=config.get("social.owner_open_id") or None, log=j.log)["url"]
+        except Exception as e:
+            j.log("建飞书文档失败(%s: %s);markdown 已导出,可手动上传" % (type(e).__name__, e))
+    lv = collections.Counter(i["level"] for i in r["issues"])
+    if (doc_url or sheet_url) and config.get("archive.enabled", True):
+        from app.modules import archive
+        archive.safe(archive.record, "SEO审计", title, client=client or r["site"], operator=archive.operator(),
+                     doc_url=doc_url, sheet_url=sheet_url, file_url=file_url,
+                     note="%s 页;On-page 均分 %s/30;P0 %d / P1 %d / P2 %d;对比基线 %s" % (
+                         s.get("HTML 200 页数"), s.get("Onpage 平均分-全站"), lv["P0"], lv["P1"], lv["P2"], r["prev"] or "无"),
+                     log=j.log)
     if push:
         from app.modules.ranks import feishu
-        keys = ["HTML 200 页数", "Onpage 平均分-全站", "可抓页面不在 sitemap", "4xx 数", "5xx 数", "缺 H1",
-                "Title 重复页", "Description 重复页", "正文图缺 ALT"]
-        msg = ["【SEO 审计】" + title] + ["%s:%s" % (k, s[k]) for k in keys if k in s]
-        msg.append("对比基线:" + (r["prev"] or "无(首次)"))
-        if file_url:
-            msg.append("审计表:" + file_url)
+        msg = ["【SEO 审计】" + title,
+               "%s 页 · On-page 均分 %s/30 · P0 %d / P1 %d / P2 %d" % (s.get("HTML 200 页数"), s.get("Onpage 平均分-全站"),
+                                                                    lv["P0"], lv["P1"], lv["P2"])]
+        msg += ["%s %s" % (i["id"], i["title"]) for i in r["issues"] if i["level"] == "P0"][:5]
+        msg.append("初稿:对外前请逐条复核")
+        if doc_url:
+            msg.append("报告:" + doc_url)
+        if sheet_url:
+            msg.append("逐页明细:" + sheet_url)
         try:
             feishu.push("\n".join(msg), log=j.log)
         except Exception as e:
             j.log("推送失败:%s" % str(e)[:160])
-    prev = {}
-    if r["prev"]:
-        from app.modules.audit.common import jload
-        prev = jload(str(config.data_dir("audit", r["site"], r["prev"])), "summary.json", {}) or {}
-    fmt = lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
-    rows = [{"指标": k, "本次": fmt(v), "上次": fmt(prev.get(k, "")) if prev else ""} for k, v in s.items()]
-    return {"preview": rows, "count": len(rows), "columns": ["指标", "本次", "上次"],
+    rows = [{"编号": i["id"], "维度": i["dim"], "问题": i["title"], "影响页数": i["count"], "动作": i["action"]}
+            for i in r["issues"]]
+    return {"preview": rows, "count": len(rows), "columns": ["编号", "维度", "问题", "影响页数", "动作"],
             "stats": {"站点": r["site"], "页数": s.get("HTML 200 页数"), "On-page 均分": s.get("Onpage 平均分-全站"),
-                      "对比基线": r["prev"] or "无"},
-            "xlsx": xlsx.name, "sheet_url": sheet_url, "truncated": False}
+                      "P0": lv["P0"], "P1": lv["P1"], "P2": lv["P2"], "对比基线": r["prev"] or "无"},
+            "xlsx": xlsx.name, "md_file": md_path.name, "doc_url": doc_url, "sheet_url": sheet_url, "truncated": False}
 
 
 def _gsc_report(j, site, client_name, end, brand, use_ai, push):

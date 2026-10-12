@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """步骤 6：汇总基线 summary.json + 与上一次审计对比 + 生成交付 xlsx
 
-issues.json（可选，由 /seo-audit 判定后写入）存在时，追加「问题清单 P0P1P2」sheet：
-[{"id":1,"level":"P0","dim":"索引性","issue":"…","evidence":"…","action":"…","owner":"…","hours":"…","verify":"…"}]
+第一页是「逐页明细」(在线表格取的就是第一页);问题清单页来自 findings.json(规则引擎初稿)。
 """
 import collections, glob, json, os, re, statistics
 from urllib.parse import urlparse
 
+from app.modules.audit import findings as F
 from app.modules.audit.common import jload, jdump
 from app.modules.audit.score import thresholds
 
@@ -106,7 +106,7 @@ def write_xlsx(cfg, summary, prev_name, prev):
     out = cfg["out"]
     P, S = jload(out, "pages.json", {}), jload(out, "scores.json", {})
     probe, lh = jload(out, "probe.json", {}), jload(out, "lighthouse.json", {})
-    issues = jload(out, "issues.json")
+    issues = jload(out, "findings.json", [])
     th = thresholds(cfg)
     HF, HB = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F4E78")
     RED, YEL, GRN = (PatternFill("solid", fgColor=c) for c in ("F8CBAD", "FFE699", "C6EFCE"))
@@ -138,7 +138,12 @@ def write_xlsx(cfg, summary, prev_name, prev):
         ws.freeze_panes = "A2"
         return Sheet(ws)
 
-    ws = sheet("00-基线总览", ["指标", "本次", "上次(%s)" % (prev_name or "无"), "变化"], [34, 40, 40, 14], first=True)
+    head, rows = F.detail_rows(cfg, F.context(cfg))
+    ws = sheet("逐页明细", head, [8, 50, 6, 7, 50, 8, 8, 6, 36, 10, 26, 12, 9, 9, 8, 9, 8, 70], first=True)
+    for r in rows:
+        ws.append(r)
+
+    ws = sheet("00-基线总览", ["指标", "本次", "上次(%s)" % (prev_name or "无"), "变化"], [34, 40, 40, 14])
     for k, v in summary.items():
         pv = (prev or {}).get(k)
         diff = round(v - pv, 1) if isinstance(v, (int, float)) and isinstance(pv, (int, float)) else ""
@@ -146,11 +151,12 @@ def write_xlsx(cfg, summary, prev_name, prev):
                    json.dumps(pv, ensure_ascii=False) if isinstance(pv, (dict, list)) else pv, diff])
 
     if issues:
-        ws = sheet("01-问题清单P0P1P2", ["#", "级别", "维度", "问题", "现状证据", "动作", "负责人", "工时", "验证方式"],
-                   [5, 6, 12, 40, 50, 50, 10, 8, 30])
-        for it in sorted(issues, key=lambda x: (x.get("level", "P9"), x.get("id", 0))):
-            ws.append([it.get(k, "") for k in ("id", "level", "dim", "issue", "evidence", "action", "owner", "hours", "verify")])
-            ws.cell(ws.max_row, 2).fill = {"P0": RED, "P1": YEL}.get(it.get("level"), GRN)
+        ws = sheet("01-问题清单P0P1P2", ["#", "级别", "维度", "问题", "影响页数", "证据", "动作", "示例页", "负责人", "状态"],
+                   [7, 6, 10, 40, 8, 50, 50, 60, 10, 10])
+        for it in issues:
+            ws.append([it["id"], it["level"], it["dim"], it["title"], it["count"], it["evidence"], it["action"],
+                       "\n".join(it["examples"]), "", "待办"])
+            ws.cell(ws.max_row, 2).fill = {"P0": RED, "P1": YEL}.get(it["level"], GRN)
 
     dl = cfg["default_lang"]
     main = [v for v in S.values() if v["lang"] == dl] or list(S.values())
@@ -173,15 +179,6 @@ def write_xlsx(cfg, summary, prev_name, prev):
     for c in range(7, 7 + len(names)):
         ws.cell(1, c).alignment = Alignment(text_rotation=90, wrap_text=True)
     ws.row_dimensions[1].height = 170
-
-    ws = sheet("04-元数据清单", ["URL", "语种", "状态", "深度", "在sitemap", "Title", "T长", "Description", "D长", "H1", "H1数",
-                              "Canonical", "robots", "Schema", "og:image", "正文词数", "正文入链"],
-               [55, 6, 6, 6, 8, 45, 5, 50, 5, 35, 5, 45, 12, 20, 8, 8, 8])
-    for u, d in sorted(P.items(), key=lambda x: (x[1]["lang"], x[1]["path"])):
-        ws.append([u, d["lang"], d["status"], d["depth"], "Y" if d["in_sitemap"] else "N", d["title"], len(d["title"]),
-                   d["desc"], len(d["desc"]), " / ".join(d["h1"])[:120], len(d["h1"]), d["canonical"],
-                   (d["robots_meta"] + " " + d["x_robots"]).strip(), ",".join(d["schema"]), "Y" if d["og"].get("image") else "N",
-                   d["words"], d["inlinks"]])
 
     ws = sheet("05-技术实测", ["类别", "URL / 项", "结果", "说明"], [14, 60, 40, 60])
     for u, ch in probe.get("redirects", {}).items():

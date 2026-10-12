@@ -3,19 +3,18 @@
 
 每个站点每天一个工作目录 data/audit/<域名>/audit-<YYYYMMDD>/，summary.json 是基线，
 下次审计自动和上一次对比（「00-基线总览」的变化列）。
-这里只出数据和审计表；P0/P1/P2 定级、整改建议要人按审计标准判 ——
-判完把 issues.json 放进当天目录、点「只重出表格」就会加进「01-问题清单」页。
+findings 规则引擎按实测数据起草 P0/P1/P2(初稿,对外前须人工复核);docmd 生成报告 markdown。
 """
 import datetime as dt
 import shutil
 from urllib.parse import urlparse
 
 from app import config
-from app.modules.audit import analyze, crawl, lighthouse_run, probe, report, score
-from app.modules.audit.common import load_cfg, save_cfg
+from app.modules.audit import analyze, crawl, docmd, findings, lighthouse_run, probe, report, score
+from app.modules.audit.common import jload, load_cfg, save_cfg
 
 STEPS = [("crawl", crawl), ("analyze", analyze), ("probe", probe), ("score", score),
-         ("lighthouse", lighthouse_run), ("report", report)]
+         ("lighthouse", lighthouse_run), ("findings", findings), ("report", report)]
 
 
 def site_key(base):
@@ -43,7 +42,7 @@ def build(base, brand=(), langs=None, max_pages=1500, lighthouse=True, only_repo
         cfg["langs"] = langs
     save_cfg(cfg)
 
-    steps = [("report", report)] if only_report else STEPS
+    steps = [("findings", findings), ("report", report)] if only_report else STEPS
     for name, mod in steps:
         if name == "lighthouse" and not (lighthouse and config.get("audit.lighthouse", True)):
             log("跳过 Lighthouse")
@@ -55,6 +54,13 @@ def build(base, brand=(), langs=None, max_pages=1500, lighthouse=True, only_repo
     src = out / ("%s-SEO审计表-%s.xlsx" % (site, date))
     xlsx = config.out_dir() / ("SEO审计表_%s_%s.xlsx" % (site, date))
     shutil.copyfile(src, xlsx)
-    summ = report.jload(str(out), "summary.json", {})
-    prev_name, _ = report.previous_summary(cfg)
-    return {"site": site, "date": date, "xlsx": xlsx, "summary": summ, "prev": prev_name, "workdir": str(out)}
+    summ = jload(str(out), "summary.json", {})
+    prev_name, prev_summ = report.previous_summary(cfg)
+    prev_issues = jload(str(out.parent / prev_name), "findings.json") if prev_name else None
+    return {"site": site, "date": date, "xlsx": xlsx, "summary": summ, "prev": prev_name, "prev_summary": prev_summ,
+            "prev_issues": prev_issues, "issues": jload(str(out), "findings.json", []), "cfg": cfg, "workdir": str(out)}
+
+
+def report_md(r, sheet_url=None, client=""):
+    return docmd.build(r["cfg"], r["summary"], r["issues"], r["prev"], r["prev_summary"], r["prev_issues"],
+                       sheet_url=sheet_url, client=client)

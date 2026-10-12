@@ -150,7 +150,7 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
 <section id="tab-audit" hidden>
   <div class="card">
     <h2>SEO 审计</h2>
-    <p class="hint">给首页，程序全站实抓（sitemap + 站内链接）→ 逐页解析 TDK / H 标签 / canonical / hreflang / Schema / 图片 / 内链 → 技术探测（www 与裸域归一、404 行为、CMS 重复入口、安全与缓存响应头、TTFB、正文图体积）→ On-page 6 维 30 项逐页打分 → Lighthouse 移动端（服务器装了才跑）。出一份多页审计表，同一个站再审时自动和上一次对比。一两百页的站约 2–5 分钟，不花钱。</p>
+    <p class="hint">给首页，程序全站实抓（sitemap + 站内链接）→ 逐页解析 TDK / H 标签 / canonical / hreflang / Schema / 图片 / 内链 → 技术探测（www 与裸域归一、404 行为、CMS 重复入口、安全与缓存响应头、TTFB、正文图体积）→ On-page 6 维 30 项逐页打分 → Lighthouse 移动端（服务器装了才跑）。出两份飞书产出：<b>审计报告文档</b>（总览 / P0·P1·P2 清单 / 各维度详情 / 数据局限）+ <b>逐页明细在线表格</b>（一页一行，带每页问题标记），同时归档进产出记录。同一个站再审时自动核对上一轮问题修没修。一两百页的站约 2–5 分钟，不花钱。</p>
     <div class="row">
       <div style="flex:2"><label>网站首页</label><input id="a-base" placeholder="例如：https://www.example.com"></div>
       <div><label>品牌词（逗号分隔，推断主关键词时剥掉）</label><input id="a-brand" placeholder="例如：acme"></div>
@@ -166,8 +166,8 @@ details.ai summary{cursor:pointer;font-weight:600;color:var(--ink)}
           <input type="checkbox" id="a-push" checked style="width:auto">推送给我</label></div>
     </div>
     <button class="go" id="run-audit">开始审计</button>
-    <button class="ghost" id="run-audit-report">只重出表格（用今天已抓的数据）</button>
-    <p class="hint" style="margin:12px 0 0">表格是取证数据，不是结论。P0/P1/P2 定级和整改建议要按审计标准人工判；「需人工复核」的项脚本默认通过；「全站 X 页都有问题」这类结论先打开两三个原始页确认不是误判。探测会在客户服务器日志里留下 404/5xx，属正常。</p>
+    <button class="ghost" id="run-audit-report">只重出报告和表格（用今天已抓的数据）</button>
+    <p class="hint" style="margin:12px 0 0">报告是规则引擎按实测数据起草的<b>初稿</b>，对外发送前要逐条复核，并补上 GSC、外链、内容质量这些脚本测不到的维度；「需人工复核」的项脚本默认通过；「全站 X 页都有问题」这类结论先打开两三个原始页确认不是误判。探测会在客户服务器日志里留下 404/5xx，属正常。</p>
   </div>
 </section>
 

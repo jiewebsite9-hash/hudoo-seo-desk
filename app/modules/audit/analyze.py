@@ -88,6 +88,16 @@ def run(cfg, log=print):
     tpl_links = {k for k, v in link_cnt.items() if v >= 0.8 * N}
     tpl_imgs = {k for k, v in img_cnt.items() if v >= 0.8 * N}
 
+    # 全站入链(含导航/页脚):判孤岛页用,和正文入链分开算
+    all_in = collections.Counter()
+    for url, (r, h) in raw.items():
+        tg = set()
+        for x in re.findall(r"""<a[^>]+href=["']([^"']+)["']""", strip_comments(h), re.I):
+            n = norm(urljoin(url, x))
+            if n and n != url:
+                tg.add(n)
+        all_in.update(tg)
+
     pages, inlinks = {}, collections.Counter()
     for url, (r, h) in raw.items():
         hs = strip_comments(h)
@@ -163,6 +173,7 @@ def run(cfg, log=print):
     tmap, dmap = collections.defaultdict(list), collections.defaultdict(list)
     for u, d in pages.items():
         d["inlinks"] = inlinks.get(u, 0)
+        d["all_inlinks"] = all_in.get(u, 0)
         if d["title"]:
             tmap[d["title"]].append(u)
         if d["desc"]:
@@ -184,7 +195,7 @@ def run(cfg, log=print):
         for l in d["links"]:
             if l["internal"]:
                 st = statuses.get(l["full"])
-                if st is not None and (st >= 400 or st < 0):
+                if st is not None and st >= 400 and "/cdn-cgi/" not in l["full"]:
                     odd["%s [%s]" % (l["full"], st)].append(u)
             if re.match(r"^\s*(tel|mailto)", l["href"], re.I) and not re.match(r"^(tel:|mailto:)", l["href"], re.I):
                 odd["MALFORMED:" + l["href"]].append(u)
