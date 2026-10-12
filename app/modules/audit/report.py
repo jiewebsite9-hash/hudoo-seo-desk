@@ -112,6 +112,22 @@ def write_xlsx(cfg, summary, prev_name, prev):
     RED, YEL, GRN = (PatternFill("solid", fgColor=c) for c in ("F8CBAD", "FFE699", "C6EFCE"))
     wb = Workbook()
 
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
+    class Sheet:
+        """抓回来的文本可能带控制字符(异常编码、二进制响应),openpyxl 遇到直接抛错 —— 统一先洗"""
+        def __init__(self, ws):
+            self.ws = ws
+
+        def append(self, row):
+            self.ws.append([ILLEGAL_CHARACTERS_RE.sub("", v) if isinstance(v, str) else v for v in row])
+
+        def __getattr__(self, k):
+            return getattr(self.ws, k)
+
+        def __getitem__(self, k):
+            return self.ws[k]
+
     def sheet(title, cols, widths, first=False):
         ws = wb.active if first else wb.create_sheet()
         ws.title = title
@@ -120,7 +136,7 @@ def write_xlsx(cfg, summary, prev_name, prev):
             ws.column_dimensions[ws.cell(1, i).column_letter].width = w
             ws.cell(1, i).font, ws.cell(1, i).fill = HF, HB
         ws.freeze_panes = "A2"
-        return ws
+        return Sheet(ws)
 
     ws = sheet("00-基线总览", ["指标", "本次", "上次(%s)" % (prev_name or "无"), "变化"], [34, 40, 40, 14], first=True)
     for k, v in summary.items():

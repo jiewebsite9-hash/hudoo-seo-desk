@@ -16,8 +16,14 @@ SEC_HEADERS = ["strict-transport-security", "x-content-type-options", "x-frame-o
 
 
 def session():
+    # 只有装了 brotli 才敢声明 br:否则服务器回 br 压缩体,requests 解不开,拿到的是二进制
+    try:
+        import brotli  # noqa: F401
+        enc = "gzip, deflate, br"
+    except ImportError:
+        enc = "gzip, deflate"
     s = requests.Session()
-    s.headers.update({"User-Agent": UA, "Accept-Encoding": "gzip, deflate, br"})
+    s.headers.update({"User-Agent": UA, "Accept-Encoding": enc})
     return s
 
 
