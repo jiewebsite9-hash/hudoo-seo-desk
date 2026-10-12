@@ -139,7 +139,7 @@ def write_xlsx(cfg, summary, prev_name, prev):
         return Sheet(ws)
 
     head, rows = F.detail_rows(cfg, F.context(cfg))
-    ws = sheet("逐页明细", head, [8, 50, 6, 7, 50, 8, 8, 6, 36, 10, 26, 12, 9, 9, 8, 9, 8, 70], first=True)
+    ws = sheet("逐页明细", head, [8, 50, 6, 7, 50, 8, 50, 8, 8, 6, 36, 10, 26, 12, 9, 9, 8, 9, 8, 60, 90], first=True)
     for r in rows:
         ws.append(r)
 

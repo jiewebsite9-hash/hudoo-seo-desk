@@ -60,8 +60,12 @@ def context(cfg):
     for d in P.values():
         wt[(d["lang"], d["type"])].append(d["words"])
     med = {k: statistics.median(v) for k, v in wt.items()}
-    return {"P": P, "S": S, "img_size": imgs, "dead": dead, "median": med, "th": thresholds(cfg),
-            "multi_lang": bool(cfg.get("langs"))}
+    ctx = {"P": P, "S": S, "img_size": imgs, "dead": dead, "median": med, "th": thresholds(cfg),
+           "multi_lang": bool(cfg.get("langs")), "domain_label": re.sub(r"[^a-z0-9]", "", cfg["bare"].split(".")[0].lower())}
+    ctx["brand_name"], ctx["brand_tokens"] = detect_brand(cfg, P)
+    us = collections.Counter(s.strip() for d in P.values() if "_" in d["title"] for s in set(d["title"].split("_")[1:]))
+    ctx["us_seg_freq"] = {k: v / max(len(P), 1) for k, v in us.items()}
+    return ctx
 
 
 def page_flags(d, ctx):
@@ -119,6 +123,132 @@ def page_flags(d, ctx):
     return f
 
 
+# ------------------------------------------------------------------ Title 修复预估
+
+# 标题里的分隔符:前后带空格的 | – — - : ,或紧贴的 | _
+TITLE_SEP = re.compile(r"\s+[|–—\-:]\s+|\s*[|_]\s*")
+WORDS = re.compile(r"[a-z0-9à-ÿа-яё]+")
+
+
+def detect_brand(cfg, P):
+    """站内品牌后缀:标题最后一段里出现最多的那个(≥3 页且 ≥20% 的带分隔标题)。返回 (展示名, 识别用的词集)"""
+    segs = collections.Counter()
+    with_sep = 0
+    for d in P.values():
+        parts = TITLE_SEP.split(d["title"].strip())
+        if len(parts) > 1 and parts[-1].strip():
+            with_sep += 1
+            segs[parts[-1].strip()] += 1
+    tokens = set(WORDS.findall(cfg["bare"].split(".")[0].lower())) | {b.lower() for b in cfg.get("brand_words", [])}
+    name = None
+    if segs:
+        top, c = segs.most_common(1)[0]
+        if c >= 3 and c >= with_sep * 0.2:
+            tokens |= set(WORDS.findall(top.lower())) - {"co", "ltd", "llc", "inc", "the", "and", "of", "company", "limited"}
+            # 同一品牌常有全称/简称两种写法(「Xumao Drive Technology (Suzhou) Co., Ltd.」/「Xumao」),后缀用最短的
+            same = [s for s, k in segs.items() if k >= 3 and set(WORDS.findall(s.lower())) & tokens]
+            name = min(same or [top], key=len)
+    return name, tokens
+
+
+def is_brand_seg(seg, ctx):
+    s = seg.lower()
+    flat = re.sub(r"[^a-z0-9]", "", s)
+    dom = ctx["domain_label"]
+    return bool(set(WORDS.findall(s)) & ctx["brand_tokens"]) or (len(flat) >= 4 and (flat in dom or dom in flat))
+
+
+def fix_title(title, ctx):
+    """剥品牌后缀 → 正文超长就砍最后一段修饰 → 品牌后缀「 | 品牌」只在放得下时追加。返回 (新 Title, 说明)"""
+    th = ctx["th"]
+    t = title.strip()
+    if not t:
+        return "", "缺 Title,需人工撰写"
+    core = t
+    # CMS 默认模板「标题_栏目_站点名」(迅睿等):下划线后面都是自动拼的面包屑,只留第一段
+    if "_" in core and len(core.split("_")[0].strip()) >= 10:
+        segs = [x.strip() for x in core.split("_")]
+        core = segs[0]
+        # 正文太短就把栏目名补回来;「Products / Produkte」这种每页都挂的通用模块名不补
+        if len(core) < th["title_min"] and len(segs) > 2 and not is_brand_seg(segs[1], ctx) \
+                and ctx.get("us_seg_freq", {}).get(segs[1], 0) < 0.2 and len(core) + 3 + len(segs[1]) <= th["title_max"]:
+            core = "%s — %s" % (core, segs[1])
+    m = list(TITLE_SEP.finditer(core))
+    if m and is_brand_seg(core[m[-1].end():], ctx):
+        core = core[:m[-1].start()].strip()
+    note = ""
+    while len(core) > th["title_max"]:
+        mm = list(TITLE_SEP.finditer(core)) or list(re.finditer(r",\s+", core))
+        if not mm or mm[-1].start() < 15:
+            note = "正文本身超 %d 字符,需人工缩写" % th["title_max"]
+            break
+        core = core[:mm[-1].start()].strip()
+    brand = ctx["brand_name"]
+    if brand and not is_brand_seg(core, ctx) and len(core) + 3 + len(brand) <= th["title_max"]:
+        core = "%s | %s" % (core, brand)
+    if not note and len(core) < th["title_min"]:
+        note = "偏短,可补产品属性/用途词到 %d+ 字符" % th["title_min"]
+    return core, note
+
+
+def suggestions(d, ctx, fl, new_title, note):
+    """把逐页问题翻译成具体动作"""
+    th, s = ctx["th"], []
+    core = re.split(r"\s+\|\s+", new_title)[0] if new_title else ""
+    if new_title and new_title != d["title"]:
+        s.append("Title 改为:%s" % new_title)
+    if note:
+        s.append("Title " + note)
+    if "Title重复" in fl:
+        s.append("Title 与其他页重复,加入本页独有的型号/品类/用途")
+    dl = len(d["desc"])
+    if not dl:
+        s.append("补 Meta 描述:围绕「%s」写 %d-%d 字符,结尾带 CTA(Get a quote / Contact us)" % (core or "本页主题", th["desc_min"], th["desc_max"]))
+    elif dl > th["desc_max"]:
+        s.append("Meta 删到 %d 字符内(现 %d)" % (th["desc_max"], dl))
+    elif dl < th["desc_min"]:
+        s.append("Meta 补到 %d 字符以上(现 %d),加卖点与 CTA" % (th["desc_min"], dl))
+    if "Meta重复" in fl:
+        s.append("Meta 与其他页重复(多为模板默认),改写为本页专属描述")
+    if not d["h1"]:
+        s.append("补 H1,建议:%s" % (core or "含核心词的页面主题"))
+    elif len(d["h1"]) > 1:
+        s.append("保留一个 H1(建议「%s」),其余降为 H2" % d["h1"][0][:60])
+    cs = canon_state(d)
+    if cs == "缺":
+        s.append("加自指 canonical:%s" % d["url"])
+    elif cs == "相对路径":
+        s.append("canonical 改绝对路径:%s" % d["url"])
+    elif cs == "指向他页":
+        s.append("确认 canonical 是否应指向自身(现指向 %s)" % d["canonical"])
+    if "noindex" in fl:
+        s.append("确认 noindex 是否有意;误标则去掉")
+    for f in fl:
+        if f.endswith("张图空alt"):
+            s.append("%s 补 alt(产品名 + 用途 + 品牌)" % f.replace("空alt", ""))
+        elif ">%dKB" % th["img_kb_max"] in f:
+            s.append("%s 重压缩并转 WebP(<%dKB)" % (f.split(">")[0], th["img_kb_ideal"]))
+        elif f.startswith("含") and f.endswith("死链"):
+            s.append("修正页内死链(见审计表「断链」页)")
+        elif f.startswith("正文偏薄"):
+            s.append("正文扩写:应用场景 / 规格选型 / FAQ 三段 H2")
+        elif f.startswith("点击深度"):
+            s.append("从栏目页或首页增加直达链接")
+    if "无结构化数据" in fl:
+        s.append("补 Schema:%s" % {"home": "Organization + WebSite"}.get(d["type"], "BreadcrumbList + 页型对应类型"))
+    if "不在sitemap" in fl:
+        s.append("加入 sitemap")
+    if "全站0入链(孤岛)" in fl:
+        s.append("在导航/栏目页/相关推荐里加入口")
+    if "缺hreflang" in fl:
+        s.append("补全语种 hreflang 互指")
+    if "含http资源" in fl:
+        s.append("http:// 资源改 https")
+    if "无og:image" in fl:
+        s.append("补 1200×630 分享图")
+    return "；".join(s)
+
+
 def detail_rows(cfg, ctx):
     """在线表格「逐页明细」:一页一行,问题多的排前面"""
     S = ctx["S"]
@@ -126,15 +256,18 @@ def detail_rows(cfg, ctx):
     for u, d in ctx["P"].items():
         ci = content_imgs(d)
         fl = page_flags(d, ctx)
-        rows.append([label(d), d["path"], d["lang"], d["status"], d["title"], len(d["title"]), len(d["desc"]),
-                     len(d["h1"]), " / ".join(d["h1"])[:120], canon_state(d), " ".join(sorted(set(d["schema"]))),
-                     "%d/%d" % (sum(1 for i in ci if not (i["alt"] or "").strip()), len(ci)),
-                     d.get("all_inlinks", ""), d["inlinks"], d["words"], (S.get(u) or {}).get("score", ""),
-                     "Y" if d["in_sitemap"] else "N", "；".join(fl)])
+        nt, note = fix_title(d["title"], ctx)
+        rows.append((len(fl), [label(d), d["path"], d["lang"], d["status"], d["title"], len(d["title"]), nt, len(nt),
+                               len(d["desc"]), len(d["h1"]), " / ".join(d["h1"])[:120], canon_state(d),
+                               " ".join(sorted(set(d["schema"]))),
+                               "%d/%d" % (sum(1 for i in ci if not (i["alt"] or "").strip()), len(ci)),
+                               d.get("all_inlinks", ""), d["inlinks"], d["words"], (S.get(u) or {}).get("score", ""),
+                               "Y" if d["in_sitemap"] else "N", "；".join(fl), suggestions(d, ctx, fl, nt, note)]))
     order = {"首页": 0}
-    rows.sort(key=lambda r: (order.get(r[0], 1), -len(r[-1].split("；")) if r[-1] else 0, r[2], r[1]))
-    return ["类型", "路径", "语种", "状态码", "当前Title", "Title字符", "Meta字符", "H1数", "H1", "Canonical正确",
-            "Schema类型", "正文图空alt/总数", "全站入链数", "正文入链数", "正文词数", "On-page得分", "在sitemap", "本轮问题"], rows
+    rows.sort(key=lambda x: (order.get(x[1][0], 1), -x[0], x[1][2], x[1][1]))
+    return ["类型", "路径", "语种", "状态码", "当前Title", "Title字符", "修复后Title(条件后缀预估)", "修复后字符",
+            "Meta字符", "H1数", "H1", "Canonical正确", "Schema类型", "正文图空alt/总数", "全站入链数", "正文入链数",
+            "正文词数", "On-page得分", "在sitemap", "本轮问题", "修改建议"], [r for _, r in rows]
 
 
 # ------------------------------------------------------------------ 站级问题
@@ -342,6 +475,18 @@ def site_issues(cfg, ctx):
         ps = pages_where(fn)
         if ps:
             add(key, lv, "On-page", "%d 页%s" % (len(ps), title), "占 %d%%" % (len(ps) * 100 // max(n, 1)), act, ps)
+
+    tl = [i for i in issues if i["key"] == "title_long"]
+    if tl:
+        mx = th["title_max"]
+        now_ok = sum(1 for d in P.values() if 0 < len(d["title"]) <= mx)
+        fix_ok = sum(1 for d in P.values() if 0 < len(fix_title(d["title"], ctx)[0]) <= mx)
+        brand = ctx["brand_name"]
+        tl[0]["evidence"] = "全站 ≤%d 字符:现 %d/%d 页(%d%%),按明细表「修复后Title」改完 %d/%d 页(%d%%)%s" % (
+            mx, now_ok, n, now_ok * 100 // max(n, 1), fix_ok, n, fix_ok * 100 // max(n, 1),
+            ";识别到的品牌后缀「%s」" % brand if brand else "")
+        tl[0]["action"] = ("品牌后缀统一为「 | %s」且只在总长 ≤%d 时追加;正文仍超长的砍最后一段修饰语(%s)。逐页建议见明细表"
+                           % (brand, mx, hint(cfg, "tdk")) if brand else tl[0]["action"] + "。逐页建议见明细表")
 
     rank = {"P0": 0, "P1": 1, "P2": 2}
     issues.sort(key=lambda i: (rank[i["level"]], -i["count"]))
