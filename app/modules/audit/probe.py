@@ -77,7 +77,7 @@ def run(cfg, log=print):
     S, res = session(), {}
     P = jload(out, "pages.json", {})
     home = S.get(base + "/", timeout=45)
-    cms = cfg.get("cms") or detect_cms(home.text)
+    cms = cfg.get("cms_override") or detect_cms(home.text)  # 每次重判;cfg["cms"] 只是上次结果,可能是坏数据
     res["cms"] = cms
     log("CMS 识别：" + cms)
 
