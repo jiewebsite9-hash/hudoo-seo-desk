@@ -562,6 +562,22 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._json({"job": jobs.start("行业速通", run).id})
 
+        if p == "/api/audit/run":
+            base = (b.get("base") or "").strip()
+            if not base:
+                return self._json({"error": "先给要审计的网站首页。"}, 400)
+            brand = [x.strip() for x in str(b.get("brand") or "").split(",") if x.strip()]
+            try:
+                max_pages = max(20, min(int(b.get("max_pages") or 1500), 5000))
+            except ValueError:
+                return self._json({"error": "抓取上限要填数字。"}, 400)
+
+            def run(j):
+                return _seo_audit(j, base, brand, max_pages, bool(b.get("lighthouse", True)),
+                                  bool(b.get("only_report")), (b.get("client") or "").strip(), bool(b.get("push", True)))
+
+            return self._json({"job": jobs.start("SEO 审计", run).id})
+
         if p == "/api/ranks/report":
             # 拿最近一轮结果出飞书文档 + 私聊链接,不重新检查
             domain = (b.get("domain") or "").strip()
@@ -992,6 +1008,50 @@ def _industry_study(j, inp, kind, market, client, push):
     rows = [{"项目": k, "值": v} for k, v in r["stats"].items()]
     return {"preview": rows, "count": len(rows), "stats": r["stats"], "doc_url": url, "md_file": path.name,
             "truncated": False}
+
+
+def _seo_audit(j, base, brand, max_pages, lighthouse, only_report, client, push):
+    """SEO 审计:抓取取证 + 30 项打分 + 基线对比 -> xlsx -> 在线表格(基线总览页) + 产出记录 + 私聊。"""
+    from app.modules.audit import pipeline
+    r = pipeline.build(base, brand=brand, max_pages=max_pages, lighthouse=lighthouse,
+                       only_report=only_report, log=j.log)
+    s = r["summary"]
+    xlsx = r["xlsx"]
+    j.log("已导出 %s" % xlsx.name)
+    title = "SEO审计 %s%s %s" % ((client + " ") if client else "", r["site"], r["date"])
+    sheet_url = file_url = None
+    if config.get("archive.enabled", True):
+        from app.modules import archive
+        got = archive.safe(archive.publish_table, xlsx, title, archive.viewers(), log=j.log)
+        if got:
+            sheet_url, file_url = got
+            avg = s.get("Onpage 平均分-全站")
+            archive.safe(archive.record, "SEO审计", title, client=client or r["site"], operator=archive.operator(),
+                         sheet_url=sheet_url, file_url=file_url,
+                         note="%s 页;On-page 全站均分 %s/30;对比基线 %s" % (s.get("HTML 200 页数"), avg, r["prev"] or "无"),
+                         log=j.log)
+    if push:
+        from app.modules.ranks import feishu
+        keys = ["HTML 200 页数", "Onpage 平均分-全站", "可抓页面不在 sitemap", "4xx 数", "5xx 数", "缺 H1",
+                "Title 重复页", "Description 重复页", "正文图缺 ALT"]
+        msg = ["【SEO 审计】" + title] + ["%s:%s" % (k, s[k]) for k in keys if k in s]
+        msg.append("对比基线:" + (r["prev"] or "无(首次)"))
+        if file_url:
+            msg.append("审计表:" + file_url)
+        try:
+            feishu.push("\n".join(msg), log=j.log)
+        except Exception as e:
+            j.log("推送失败:%s" % str(e)[:160])
+    prev = {}
+    if r["prev"]:
+        from app.modules.audit.common import jload
+        prev = jload(str(config.data_dir("audit", r["site"], r["prev"])), "summary.json", {}) or {}
+    fmt = lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+    rows = [{"指标": k, "本次": fmt(v), "上次": fmt(prev.get(k, "")) if prev else ""} for k, v in s.items()]
+    return {"preview": rows, "count": len(rows), "columns": ["指标", "本次", "上次"],
+            "stats": {"站点": r["site"], "页数": s.get("HTML 200 页数"), "On-page 均分": s.get("Onpage 平均分-全站"),
+                      "对比基线": r["prev"] or "无"},
+            "xlsx": xlsx.name, "sheet_url": sheet_url, "truncated": False}
 
 
 def _gsc_report(j, site, client_name, end, brand, use_ai, push):

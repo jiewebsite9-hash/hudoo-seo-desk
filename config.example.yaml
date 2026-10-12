@@ -117,6 +117,14 @@ ranks:
   poll_sec: 15               # 轮询间隔
   timeout_sec: 1800          # 整轮取结果上限;超时未回的词记 error,下轮取回不重复扣费
 
+# ---------- SEO 审计 ----------
+audit:
+  threads: 5                 # 抓取并发;客户站扛不住就调小
+  lighthouse: true           # 机器上没装 lighthouse(npm i -g lighthouse + Chrome)会自动跳过
+  # 判定阈值。不填用程序内置的通用值;团队内部标准写在 config.local.yaml,不进仓库。
+  # 可填键:title_min title_max desc_min desc_max img_kb_ideal img_kb_max good ok lcp_ms cls ttfb_ms
+  thresholds: {}
+
 # ---------- 服务 ----------
 server:
   host: "127.0.0.1"        # 只给自己用就保持这个

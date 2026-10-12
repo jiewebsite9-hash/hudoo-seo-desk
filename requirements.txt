@@ -2,5 +2,6 @@ google-ads>=32.0.0
 PyYAML>=6.0
 anthropic>=1.0.0
 openpyxl>=3.1
+requests>=2.28       # SEO 审计抓取
 openai>=2.0
 xlrd>=2.0          # LinkedIn 导出是老式 OLE2 .xls，openpyxl 不认

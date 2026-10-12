@@ -53,7 +53,7 @@ function showOutbox() {
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
-    ['industry', 'sop', 'ranks', 'gsc', 'learn', 'social', 'mine', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
+    ['industry', 'audit', 'sop', 'ranks', 'gsc', 'learn', 'social', 'mine', 'setup'].forEach(t => { $('tab-' + t).hidden = (t !== b.dataset.tab); });
     $('outbox').hidden = !(outboxTab && outboxTab === b.dataset.tab);
   };
 });
@@ -797,6 +797,21 @@ if ($('run-industry')) $('run-industry').onclick = () => {
     input: $('i-input').value, kind: $('i-kind').value, market: $('i-market').value,
     client: $('i-client').value, push: $('i-push').checked,
   }, '出行业速通…');
+};
+function auditPayload(onlyReport) {
+  return {
+    base: $('a-base').value, brand: $('a-brand').value, max_pages: $('a-max').value,
+    client: $('a-client').value, lighthouse: $('a-lh').checked, push: $('a-push').checked,
+    only_report: onlyReport,
+  };
+}
+if ($('run-audit')) $('run-audit').onclick = () => {
+  if (!$('a-base').value.trim()) return showErr('先给要审计的网站首页。');
+  run('/api/audit/run', auditPayload(false), 'SEO 审计…');
+};
+if ($('run-audit-report')) $('run-audit-report').onclick = () => {
+  if (!$('a-base').value.trim()) return showErr('先给要审计的网站首页。');
+  run('/api/audit/run', auditPayload(true), '重出审计表…');
 };
 if ($('run-gsc')) $('run-gsc').onclick = () => {
   if (!$('g-site').value) return showErr('先选一个 GSC 资源。');
